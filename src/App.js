@@ -31,6 +31,8 @@ import {
 import "./App.css";
 import {
     buildStakeKeyRegCert,
+    buildAuthorizeHotCredCert,
+    buildResignColdCredCert,
 } from './utils.js';
 
 let Buffer = require('buffer/').Buffer
@@ -701,11 +703,43 @@ class App extends React.Component {
         }
     }
 
+    addAuthorizeHotCredCert = async () => {
+        const certBuilder = CertificatesBuilder.new();
+        const certBuilderWithAuthHot= buildAuthorizeHotCredCert(
+            certBuilder, 
+            this.state.coldCredential,
+            this.state.hotCredential,
+        );
+            
+        if (certBuilderWithAuthHot){
+            this.setState({certBuilder : certBuilderWithAuthHot});
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    addResignColdCredCert = async () => {
+        const certBuilder = CertificatesBuilder.new();
+        const certBuilderWithResignCred= buildResignColdCredCert(
+            certBuilder, 
+            this.state.coldCredential,
+            this.state.hotCredential,
+        );
+            
+        if (certBuilderWithResignCred){
+            this.setState({certBuilder : certBuilderWithResignCred});
+            return true;
+        } else {
+            return false;
+        }
+    }
+
     buildVote = async () => {
         try {
             // Use wallet's DRep key
             const dRepKeyHash = Ed25519KeyHash.from_hex(this.state.dRepID);
-            const voter = Voter.new_drep(Credential.from_keyhash(dRepKeyHash))
+            const voter = Voter.new_drep(Credential.from_keyhash(dRepKeyHash));
             // What is being voted on
             const govActionId = GovernanceActionId.new(
                 TransactionHash.from_hex(this.state.voteGovActionTxHash), this.state.voteGovActionIndex);

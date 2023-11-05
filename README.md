@@ -1,4 +1,4 @@
-# Sancho Consitutional Committee Test dApp
+# Sancho Constitutional Committee Test dApp
 
 - Here we use CIP-95 to mock how a CC member could use a dApp and wallet on Sancho testnet
 
