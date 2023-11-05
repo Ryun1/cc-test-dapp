@@ -15,24 +15,15 @@ import {
     BigNum,
     TransactionWitnessSet,
     Transaction,
-    Credential,
     PublicKey,
-    Ed25519KeyHash,
     CertificatesBuilder,
-    Anchor,
     VotingBuilder,
-    Voter,
-    GovernanceActionId,
-    TransactionHash,
-    VotingProcedure,
-    AnchorDataHash,
-    URL,
 } from "@emurgo/cardano-serialization-lib-asmjs"
 import "./App.css";
 import {
-    buildStakeKeyRegCert,
     buildAuthorizeHotCredCert,
     buildResignColdCredCert,
+    buildCCVote,
 } from './utils.js';
 
 let Buffer = require('buffer/').Buffer
@@ -200,13 +191,6 @@ class App extends React.Component {
         return this.checkIfWalletEnabled();
     }
 
-    getAPIVersion = () => {
-        const walletKey = this.state.whichWalletSelected;
-        const walletAPIVersion = window?.cardano?.[walletKey].apiVersion;
-        this.setState({walletAPIVersion})
-        return walletAPIVersion;
-    }
-
     getWalletName = () => {
         const walletKey = this.state.whichWalletSelected;
         const walletName = window?.cardano?.[walletKey].name;
@@ -230,15 +214,6 @@ class App extends React.Component {
         try {
             const enabledExtensions = await this.API.getExtensions();
             this.setState({enabledExtensions})
-        } catch (err) {
-            console.log(err)
-        }
-    }
-
-    getNetworkId = async () => {
-        try {
-            const networkId = await this.API.getNetworkId();
-            this.setState({networkId})
         } catch (err) {
             console.log(err)
         }
@@ -389,29 +364,10 @@ class App extends React.Component {
             votingBuilder: undefined,
             govActionBuilder: undefined,
             // Certs
-            voteDelegationTarget: "",
-            voteDelegationStakeCred: "",
-            dRepRegTarget: "",
-            dRepDeposit: "2000000",
             voteGovActionTxHash: "",
             voteGovActionIndex: "",
             voteChoice: "",
-            stakeKeyReg: "",
-            stakeKeyCoin: "",
-            stakeKeyWithCoin: false,
-            stakeKeyUnreg: "",
-            // Combo certs
-            comboPoolHash: "",
-            comboStakeCred: "",
-            comboStakeRegCoin: "",
-            comboVoteDelegTarget: "",
             // Gov actions
-            constURL: "",
-            constHash: "",
-            treasuryTarget: "",
-            treasuryAmount: "",
-            hardForkUpdateMajor: "",
-            hardForkUpdateMinor: "",
             govActDeposit: "1000000000",
         });
     }
@@ -425,7 +381,6 @@ class App extends React.Component {
             const walletFound = this.checkIfWalletFound();
             // If wallet found and CIP-95 selected perform CIP-30 initial API calls
             if (walletFound) {
-                await this.getAPIVersion();
                 await this.getWalletName();
                 this.getSupportedExtensions();
                 // If CIP-95 checkbox selected attempt to connect to wallet with CIP-95
@@ -442,7 +397,6 @@ class App extends React.Component {
                 // If wallet is enabled/connected
                 if (walletEnabled) {
                     // CIP-30 API calls
-                    await this.getNetworkId();
                     await this.getUtxos();
                     await this.getBalance();
                     await this.getChangeAddress();
@@ -681,28 +635,6 @@ class App extends React.Component {
         }
     }
 
-    addStakeKeyRegCert = async () => {
-        const certBuilder = CertificatesBuilder.new();
-
-        const certBuilderWithStakeReg = buildStakeKeyRegCert(
-            certBuilder, 
-            this.state.stakeKeyReg,
-            this.state.stakeKeyWithCoin,
-            this.state.stakeKeyCoin,
-        );
-            
-        // messy having this here
-        if (!this.state.stakeKeyWithCoin){
-            this.protocolParams.keyDeposit = this.state.stakeKeyCoin
-        }
-        if (certBuilderWithStakeReg){
-            this.setState({certBuilder : certBuilderWithStakeReg});
-            return true;
-        } else {
-            return false;
-        }
-    }
-
     addAuthorizeHotCredCert = async () => {
         const certBuilder = CertificatesBuilder.new();
         const certBuilderWithAuthHot= buildAuthorizeHotCredCert(
@@ -721,10 +653,12 @@ class App extends React.Component {
 
     addResignColdCredCert = async () => {
         const certBuilder = CertificatesBuilder.new();
-        const certBuilderWithResignCred= buildResignColdCredCert(
+        const certBuilderWithResignCred = buildResignColdCredCert(
             certBuilder, 
             this.state.coldCredential,
             this.state.hotCredential,
+            this.cip95MetadataURL,
+            this.cip95MetadataHash,
         );
             
         if (certBuilderWithResignCred){
@@ -735,39 +669,22 @@ class App extends React.Component {
         }
     }
 
-    buildVote = async () => {
-        try {
-            // Use wallet's DRep key
-            const dRepKeyHash = Ed25519KeyHash.from_hex(this.state.dRepID);
-            const voter = Voter.new_drep(Credential.from_keyhash(dRepKeyHash));
-            // What is being voted on
-            const govActionId = GovernanceActionId.new(
-                TransactionHash.from_hex(this.state.voteGovActionTxHash), this.state.voteGovActionIndex);
-            // Voting choice
-            let votingChoice;
-            if ((this.state.voteChoice).toUpperCase() === "YES") {
-                votingChoice = 1
-            } else if ((this.state.voteChoice).toUpperCase() === "NO") {
-                votingChoice = 0
-            } else if ((this.state.voteChoice).toUpperCase() === "ABSTAIN") {
-                votingChoice = 2
-            }
-            let votingProcedure;
-            if (this.state.cip95MetadataURL && this.state.cip95MetadataHash) {
-                const anchorURL = URL.new(this.state.cip95MetadataURL);
-                const anchorHash = AnchorDataHash.from_hex(this.state.cip95MetadataHash);
-                const anchor = Anchor.new(anchorURL, anchorHash);
-                votingProcedure = VotingProcedure.new_with_anchor(votingChoice, anchor);
-            } else {
-                votingProcedure = VotingProcedure.new(votingChoice);
-            };
-            // Add vote to vote builder
-            const votingBuilder = VotingBuilder.new();
-            votingBuilder.add(voter, govActionId, votingProcedure);
-            this.setState({votingBuilder});
+    addVote = async () => {
+        const votingBuilder = VotingBuilder.new();
+        const votingBuilderWithCCVote = buildCCVote(
+            votingBuilder, 
+            this.state.hotCredential,
+            this.state.voteGovActionTxHash,
+            this.state.voteGovActionIndex,
+            this.state.voteChoice,
+            this.cip95MetadataURL,
+            this.cip95MetadataHash,
+        );
+            
+        if (votingBuilderWithCCVote){
+            this.setState({votingBuilder : votingBuilderWithCCVote});
             return true;
-        } catch (err) {
-            console.log(err);
+        } else {
             return false;
         }
     }
@@ -820,10 +737,94 @@ class App extends React.Component {
                 
                 <hr style={{marginTop: "10px", marginBottom: "10px"}}/>
                 <p><span style={{fontWeight: "bold"}}>Use CIP-95 .signTx(): </span></p>
-                <p><span style={{fontWeight: "lighter"}}> Basic Governance Functions</span></p>
                 <Tabs id="cip95-basic" vertical={true} onChange={this.handle95TabId} selectedTab95Id={this.state.selected95BasicTabId}>
-                    <Tab id="1" title="🗳 Vote" panel={
+                    <Tab id="1" title="🔥 Authorize CC Hot Credential" panel={
                         <div style={{marginLeft: "20px"}}>
+                            <FormGroup
+                                helperText=""
+                                label="Cold Credential"
+                            >
+                                <InputGroup
+                                    disabled={false}
+                                    leftIcon="id-number"
+                                    onChange={(event) => this.setState({coldCredential: event.target.value})}
+                                />
+                            </FormGroup>
+
+                            <FormGroup
+                                helperText=""
+                                label="Hot Credential"
+                            >
+                                <InputGroup
+                                    disabled={false}
+                                    leftIcon="id-number"
+                                    onChange={(event) => this.setState({hotCredential: event.target.value})}
+                                />
+                            </FormGroup>
+                            <button style={{padding: "10px"}} onClick={ () => this.buildSubmitConwayTx(this.addAuthorizeHotCredCert())}>Build, .signTx() and .submitTx()</button>
+                        </div>
+                    } />
+                    <Tab id="2" title="🧊 Resign CC Cold Credential" panel={
+                        <div style={{marginLeft: "20px"}}>
+                            <FormGroup
+                                helperText=""
+                                label="Cold Credential"
+                            >
+                                <InputGroup
+                                    disabled={false}
+                                    leftIcon="id-number"
+                                    onChange={(event) => this.setState({coldCredential: event.target.value})}
+                                />
+                            </FormGroup>
+
+                            <FormGroup
+                                helperText=""
+                                label="Hot Credential"
+                            >
+                                <InputGroup
+                                    disabled={false}
+                                    leftIcon="id-number"
+                                    onChange={(event) => this.setState({hotCredential: event.target.value})}
+                                />
+                            </FormGroup>
+
+                            <FormGroup
+                                label="Optional: Metadata URL"
+                            >
+                                <InputGroup
+                                    disabled={false}
+                                    leftIcon="id-number"
+                                    onChange={(event) => this.setState({cip95MetadataURL: event.target.value})}
+                                    defaultValue={this.state.cip95MetadataURL}
+                                />
+                            </FormGroup>
+
+                            <FormGroup
+                                helperText=""
+                                label="Optional: Metadata Hash"
+                            >
+                                <InputGroup
+                                    disabled={false}
+                                    leftIcon="id-number"
+                                    onChange={(event) => this.setState({cip95MetadataHash: event.target.value})}
+                                />
+                            </FormGroup>
+                            <button style={{padding: "10px"}} onClick={ () => this.buildSubmitConwayTx(this.addResignColdCredCert())}>Build, .signTx() and .submitTx()</button>
+                        </div>
+                    } />
+                    <Tab id="3" title="🗳 CC Vote" panel={
+                        <div style={{marginLeft: "20px"}}>
+
+                            <FormGroup
+                                helperText=""
+                                label="CC Hot Credential"
+                            >
+                                <InputGroup
+                                    disabled={false}
+                                    leftIcon="id-number"
+                                    onChange={(event) => this.setState({hotCredential: event.target.value})}
+                                />
+                            </FormGroup>
 
                             <FormGroup
                                 helperText=""
@@ -865,7 +866,6 @@ class App extends React.Component {
                                     disabled={false}
                                     leftIcon="id-number"
                                     onChange={(event) => this.setState({cip95MetadataURL: event.target.value})}
-                                    defaultValue={this.state.cip95MetadataURL}
                                 />
                             </FormGroup>
 
@@ -879,21 +879,10 @@ class App extends React.Component {
                                     onChange={(event) => this.setState({cip95MetadataHash: event.target.value})}
                                 />
                             </FormGroup>
-                            <button style={{padding: "10px"}} onClick={ () => this.buildSubmitConwayTx(this.buildVote())}>Build, .signTx() and .submitTx()</button>
+                            <button style={{padding: "10px"}} onClick={ () => this.buildSubmitConwayTx(this.addVote())}>Build, .signTx() and .submitTx()</button>
                         </div>
                     } />
-                    <Tabs.Expander />
-                </Tabs>
-                <hr style={{marginTop: "10px", marginBottom: "10px"}}/>
-
-                <p><span style={{fontWeight: "bold"}}>Use CIP-95 .signTx(): </span></p>
-
-                <hr style={{marginTop: "10px", marginBottom: "10px"}}/>
-                <p><span style={{fontWeight: "bold"}}>Use CIP-95 .signTx(): </span></p>
-                <p><span style={{fontWeight: "lighter"}}> Random Stuff</span></p>
-                
-                <Tabs id="cip95-misc" vertical={true} onChange={this.handle95TabId} selectedTab95Id={this.state.selected95MiscTabId}>
-                    <Tab id="1" title=" 💯 Test Basic Transaction" panel={
+                    <Tab id="4" title=" 💯 Test Basic Transaction" panel={
                         <div style={{marginLeft: "20px"}}>
 
                             <button style={{padding: "10px"}} onClick={ () => this.buildSubmitConwayTx(true) }>Build, .signTx() and .submitTx()</button>
@@ -902,7 +891,6 @@ class App extends React.Component {
                     } />
                     <Tabs.Expander />
                 </Tabs>
-                
                 <hr style={{marginTop: "10px", marginBottom: "10px"}}/>
 
                 <p><span style={{fontWeight: "bold"}}>CborHex Tx: </span>{this.state.cip95ResultTx}</p>
