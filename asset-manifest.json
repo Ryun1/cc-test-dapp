@@ -1,7 +1,7 @@
 {
   "files": {
     "main.css": "/sancho-cc-dapp/static/css/main.d960811b.css",
-    "main.js": "/sancho-cc-dapp/static/js/main.84ac8a86.js",
+    "main.js": "/sancho-cc-dapp/static/js/main.c830444f.js",
     "static/js/787.948e2b8b.chunk.js": "/sancho-cc-dapp/static/js/787.948e2b8b.chunk.js",
     "static/media/icons-20.eot": "/sancho-cc-dapp/static/media/icons-20.cde033c5d3f24283f757.eot",
     "static/media/icons-20.woff": "/sancho-cc-dapp/static/media/icons-20.1ef633d3a28d0986f63e.woff",
@@ -11,11 +11,11 @@
     "static/media/icons-16.ttf": "/sancho-cc-dapp/static/media/icons-16.13933033991f62d6bb64.ttf",
     "index.html": "/sancho-cc-dapp/index.html",
     "main.d960811b.css.map": "/sancho-cc-dapp/static/css/main.d960811b.css.map",
-    "main.84ac8a86.js.map": "/sancho-cc-dapp/static/js/main.84ac8a86.js.map",
+    "main.c830444f.js.map": "/sancho-cc-dapp/static/js/main.c830444f.js.map",
     "787.948e2b8b.chunk.js.map": "/sancho-cc-dapp/static/js/787.948e2b8b.chunk.js.map"
   },
   "entrypoints": [
     "static/css/main.d960811b.css",
-    "static/js/main.84ac8a86.js"
+    "static/js/main.c830444f.js"
   ]
 }
