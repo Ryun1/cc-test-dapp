@@ -1,6 +1,6 @@
-# Sancho Constitutional Committee Test dApp
+# Constitutional Committee Test dApp
 
-- Here we use CIP-95 to mock how a CC member could use a dApp and wallet on Sancho testnet
+- This testing dApp uses CSl to build transactions which can contain CC artifacts
+- ⚠️ Only use this on testnets, this is not recommended on mainnet
 
-
-http://ryun1.github.io/sancho-cc-dapp
+Deployed at: http://ryun1.github.io/cc-test-dapp

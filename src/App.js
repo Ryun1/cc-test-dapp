@@ -698,7 +698,7 @@ class App extends React.Component {
         return (
             <div style={{margin: "20px"}}>
 
-                <h1>✨sancho CC test dApp✨</h1>
+                <h1>✨CC test dApp✨</h1>
 
                 <input type="checkbox" checked={this.state.selectedCIP95} onChange={this.handleCIP95Select}/> Enable CIP-95?
 
@@ -899,7 +899,7 @@ class App extends React.Component {
 
                 <hr style={{marginTop: "10px", marginBottom: "10px"}}/>
                 
-                <h5>✨Powered by CSL 12 alpha 13✨</h5>
+                <h5>✨Powered by CSL 12 beta 2✨</h5>
             </div>
         )
     }

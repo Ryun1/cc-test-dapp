@@ -34,37 +34,6 @@ function keyHashStringToCredential (input) {
     }
 }
 
-function stringToDRep (input) {
-    let targetDRep;
-    try {
-        if ((input).toUpperCase() === 'ABSTAIN') {
-            targetDRep = DRep.new_always_abstain();
-        } else if ((input).toUpperCase() === 'NO CONFIDENCE') {
-            targetDRep = DRep.new_always_no_confidence();
-        } else {
-            const dRepKeyCred = keyHashStringToCredential(input)
-            targetDRep = DRep.new_key_hash(dRepKeyCred.to_keyhash());
-        };
-        return targetDRep;
-    } catch (err) {
-        console.log(err);
-        console.log('Error in parsing selected DRep!');
-        return null;
-    }
-}
-
-function stringToBigNum (input) {
-    try {
-        const targetBigNum = BigNum.from_str(input);    
-        return targetBigNum;
-    } catch (err) {
-        console.log(err);
-        console.log('Error in deposit amount!');
-        return null;
-    }
-}
-
-
 // Committee Certs
 
 // Authorize Hot Credential
