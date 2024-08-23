@@ -3,6 +3,7 @@ import { Tab, Tabs, RadioGroup, Radio, FormGroup, InputGroup } from "@blueprintj
 import "../node_modules/@blueprintjs/core/lib/css/blueprint.css";
 import "../node_modules/@blueprintjs/icons/lib/css/blueprint-icons.css";
 import "../node_modules/normalize.css/normalize.css";
+import sanchoPParam from "./sanchoPParam.json"
 import {
     Address,
     TransactionUnspentOutput,
@@ -15,15 +16,35 @@ import {
     BigNum,
     TransactionWitnessSet,
     Transaction,
+    Credential,
     PublicKey,
+    Ed25519KeyHash,
     CertificatesBuilder,
+    Anchor,
     VotingBuilder,
+    Voter,
+    GovernanceActionId,
+    TransactionHash,
+    VotingProcedure,
+    VotingProposalBuilder,
+    AnchorDataHash,
+    URL,
+    UnitInterval,
+    ChangeConfig,
+    PlutusScript,
+    ExUnitPrices,
+    PlutusScripts,
+    Redeemers,
+    Costmdls,
+    CostModel,
+    Language,
+    Int,
 } from "@emurgo/cardano-serialization-lib-asmjs"
 import "./App.css";
 import {
     buildAuthorizeHotCredCert,
     buildResignColdCredCert,
-    buildCCVote,
+    keyHashStringToCredential,
 } from './utils.js';
 
 let Buffer = require('buffer/').Buffer
@@ -50,11 +71,15 @@ class App extends React.Component {
             usedAddress: undefined,
             assetNameHex: "4c494645",
             // CIP-95 Stuff
+            signAndSubmitError: undefined,
+            buildingError: undefined,
             supportedExtensions: [],
             enabledExtensions: [],
             selected95BasicTabId: "1",
             selected95ActionsTabId: "1",
+            selected95ComboTabId: "1",
             selected95MiscTabId: "1",
+            selected95CCTabId: "1",
             selectedCIP95: true,
             // Keys
             dRepKey: undefined,
@@ -67,6 +92,13 @@ class App extends React.Component {
             regStakeKeyHashHex: undefined,
             unregStakeKeyHashHex: undefined,
             // Txs
+            seeCombos: false,
+            seeGovActs: false,
+            seeCCCerts: false,
+            seeMisc: false,
+            certsInTx: [],
+            votesInTx: [],
+            govActsInTx: [],
             cip95ResultTx: "",
             cip95ResultHash: "",
             cip95ResultWitness: "",
@@ -75,31 +107,29 @@ class App extends React.Component {
             certBuilder: undefined,
             votingBuilder: undefined,
             govActionBuilder: undefined,
+            treasuryDonationAmount: undefined,
+            treasuryValueAmount: undefined,
             // Certs
             voteDelegationTarget: "",
             voteDelegationStakeCred: "",
             dRepRegTarget: "",
-            dRepDeposit: "2000000",
+            dRepDeposit: "500000000",
             voteGovActionTxHash: "",
             voteGovActionIndex: "",
             voteChoice: "",
             stakeKeyReg: "",
-            stakeKeyCoin: "",
+            stakeKeyCoin: "2000000",
             stakeKeyWithCoin: false,
             stakeKeyUnreg: "",
+            totalRefunds: undefined,
             // Combo certs
             comboPoolHash: "",
             comboStakeCred: "",
-            comboStakeRegCoin: "",
+            comboStakeRegCoin: "2000000",
             comboVoteDelegTarget: "",
-            // Gov actions
-            constURL: "",
-            constHash: "",
-            treasuryTarget: "",
-            treasuryAmount: "",
-            hardForkUpdateMajor: "",
-            hardForkUpdateMinor: "",
-            govActDeposit: "1000000000",
+            // see things
+            seeCIP95: false,
+            seeCIP30: false,
         }
 
         /**
@@ -114,14 +144,14 @@ class App extends React.Component {
                 minFeeA: "44",
                 minFeeB: "155381",
             },
-            minUtxo: "34482",
+            minUtxo: "1000000",
             poolDeposit: "500000000",
             keyDeposit: "2000000",
             maxValSize: 5000,
             maxTxSize: 16384,
             priceMem: 0.0577,
             priceStep: 0.0000721,
-            coinsPerUtxoWord: "34482",
+            coinsPerUTxOByte: "4310",
         }
         this.pollWallets = this.pollWallets.bind(this);
     }
@@ -191,6 +221,13 @@ class App extends React.Component {
         return this.checkIfWalletEnabled();
     }
 
+    getAPIVersion = () => {
+        const walletKey = this.state.whichWalletSelected;
+        const walletAPIVersion = window?.cardano?.[walletKey].apiVersion;
+        this.setState({walletAPIVersion})
+        return walletAPIVersion;
+    }
+
     getWalletName = () => {
         const walletKey = this.state.whichWalletSelected;
         const walletName = window?.cardano?.[walletKey].name;
@@ -214,6 +251,15 @@ class App extends React.Component {
         try {
             const enabledExtensions = await this.API.getExtensions();
             this.setState({enabledExtensions})
+        } catch (err) {
+            console.log(err)
+        }
+    }
+
+    getNetworkId = async () => {
+        try {
+            const networkId = await this.API.getNetworkId();
+            this.setState({networkId})
         } catch (err) {
             console.log(err)
         }
@@ -277,6 +323,12 @@ class App extends React.Component {
             console.log(err)
         }
     }
+    getCollaterals = async()=>{
+        const rawUtxos = await this.API.getUtxos();
+        return rawUtxos.map(rawUtxo=>{
+            TransactionUnspentOutput.from_bytes(Buffer.from(rawUtxo, "hex"))
+        })
+    }
 
     getBalance = async () => {
         try {
@@ -291,7 +343,8 @@ class App extends React.Component {
     getChangeAddress = async () => {
         try {
             const raw = await this.API.getChangeAddress();
-            const changeAddress = Address.from_bytes(Buffer.from(raw, "hex")).to_bech32()
+            let address = Address.from_bytes(Buffer.from(raw, "hex"))
+            const changeAddress = address.to_bech32(address.network_id == 0?"addr":"addr_test")
             this.setState({changeAddress})
         } catch (err) {
             console.log(err)
@@ -355,6 +408,14 @@ class App extends React.Component {
             regStakeKeyHashHex: undefined,
             unregStakeKeyHashHex: undefined,
             // Txs
+            signAndSubmitError: undefined,
+            buildingError: undefined,
+            seeCombos: false,
+            seeGovActs: false,
+            seeMisc: false,
+            certsInTx: [],
+            votesInTx: [],
+            govActsInTx: [],
             cip95ResultTx: "",
             cip95ResultHash: "",
             cip95ResultWitness: "",
@@ -363,12 +424,26 @@ class App extends React.Component {
             certBuilder: undefined,
             votingBuilder: undefined,
             govActionBuilder: undefined,
+            treasuryDonationAmount: undefined,
+            treasuryValueAmount: undefined,
             // Certs
+            voteDelegationTarget: "",
+            voteDelegationStakeCred: "",
+            dRepRegTarget: "",
+            dRepDeposit: "500000000",
             voteGovActionTxHash: "",
             voteGovActionIndex: "",
             voteChoice: "",
-            // Gov actions
-            govActDeposit: "1000000000",
+            stakeKeyReg: "",
+            stakeKeyCoin: "2000000",
+            stakeKeyWithCoin: false,
+            stakeKeyUnreg: "",
+            totalRefunds: undefined,
+            // Combo certs
+            comboPoolHash: "",
+            comboStakeCred: "",
+            comboStakeRegCoin: "2000000",
+            comboVoteDelegTarget: "",
         });
     }
 
@@ -379,8 +454,11 @@ class App extends React.Component {
     refreshData = async () => {
         try {
             const walletFound = this.checkIfWalletFound();
+            this.resetSomeState();
+            this.refreshErrorState();
             // If wallet found and CIP-95 selected perform CIP-30 initial API calls
             if (walletFound) {
+                await this.getAPIVersion();
                 await this.getWalletName();
                 this.getSupportedExtensions();
                 // If CIP-95 checkbox selected attempt to connect to wallet with CIP-95
@@ -397,6 +475,7 @@ class App extends React.Component {
                 // If wallet is enabled/connected
                 if (walletEnabled) {
                     // CIP-30 API calls
+                    await this.getNetworkId();
                     await this.getUtxos();
                     await this.getBalance();
                     await this.getChangeAddress();
@@ -439,10 +518,16 @@ class App extends React.Component {
                 .fee_algo(LinearFee.new(BigNum.from_str(this.protocolParams.linearFee.minFeeA), BigNum.from_str(this.protocolParams.linearFee.minFeeB)))
                 .pool_deposit(BigNum.from_str(this.protocolParams.poolDeposit))
                 .key_deposit(BigNum.from_str(this.protocolParams.keyDeposit))
-                .coins_per_utxo_word(BigNum.from_str(this.protocolParams.coinsPerUtxoWord))
+                .coins_per_utxo_byte(BigNum.from_str(this.protocolParams.coinsPerUTxOByte))
                 .max_value_size(this.protocolParams.maxValSize)
                 .max_tx_size(this.protocolParams.maxTxSize)
                 .prefer_pure_change(true)
+                .ex_unit_prices(
+                    ExUnitPrices.new(
+                        UnitInterval.new(BigNum.from_str("577"),BigNum.from_str("10000")), 
+                        UnitInterval.new(BigNum.from_str("721"),BigNum.from_str("10000000"))
+                    )
+                )
                 .build()
         );
         return txBuilder
@@ -484,7 +569,7 @@ class App extends React.Component {
         try {
             const raw = await this.API.cip95.getRegisteredPubStakeKeys();
             if (raw.length < 1){
-                console.log("No Registered Pub Stake Keys");
+                // console.log("No Registered Pub Stake Keys");
             } else {
                 // Set array
                 const regStakeKeys = raw;
@@ -548,52 +633,219 @@ class App extends React.Component {
         this.setState({selectedCIP95});
     }
 
+    handleSeeCIP95 = () => {
+        const seeCIP95 = !this.state.seeCIP95;
+        this.setState({seeCIP95});
+    }
+
+    handleSeeCIP30 = () => {
+        const seeCIP30 = !this.state.seeCIP30;
+        this.setState({seeCIP30});
+    }
+
+    handleInputToCredential = async (input) => {
+        try {
+          const keyHash = Ed25519KeyHash.from_hex(input);
+          const cred = Credential.from_keyhash(keyHash);
+          return cred;
+        } catch (err1) {
+          try {
+            const keyHash = Ed25519KeyHash.from_bech32(input);
+            const cred = Credential.from_keyhash(keyHash);
+            return cred;
+          } catch (err2) {
+            console.error('Error in parsing credential, not Hex or Bech32:');
+            console.error(err1, err2);
+            this.setState({buildingError : {msg: 'Error in parsing credential, not Hex or Bech32', err: err2}});
+            return null;
+          }
+        }
+    }
+
+    // ew! who wrote this?
+    resetSomeState = async () => { 
+        this.setState({cip95ResultTx : ""});
+        this.setState({cip95ResultHash : ""});
+        this.setState({certsInTx : []});
+        this.setState({votesInTx : []});
+        this.setState({govActsInTx : []});
+        this.setState({certBuilder : undefined});
+        this.setState({votingBuilder : undefined});
+        this.setState({govActionBuilder : undefined});
+    }
+
+    refreshErrorState = async () => { 
+        this.setState({buildingError : undefined});
+        this.setState({signAndSubmitError : undefined});
+    }
+
+    getCertBuilder = async () => {
+        if (this.state.certBuilder){
+            return this.state.certBuilder;
+        } else {
+            return CertificatesBuilder.new();
+        }
+    }
+
+    setCertBuilder = async (certBuilderWithCert) => {
+        this.setState({certBuilder : certBuilderWithCert});
+
+        let certs = certBuilderWithCert.build();
+        let certsInJson = [];
+        for (let i = 0; i < certs.len(); i++) {
+            certsInJson.push(certs.get(i).to_json());
+        }
+        this.setState({certsInTx : certsInJson});
+    }
+
+    getVotingBuilder = async () => {
+        let votingBuilder;
+        if (this.state.votingBuilder){
+            votingBuilder = this.state.votingBuilder;
+        } else {
+            votingBuilder = VotingBuilder.new();
+        }
+        return votingBuilder;
+    }
+
+    setVotingBuilder = async (votingBuilderWithVote) => {
+        this.setState({votingBuilder : votingBuilderWithVote});
+
+        // let votes = votingBuilderWithVote.build();
+        // let votesInJson = [];
+        // for (let i = 0; i < votes.get_voters().len(); i++) {
+        //     votesInJson.push(votes.get(i).to_json());
+        // }
+        this.setState({votesInTx : votingBuilderWithVote.build().to_json()});
+    }
+
+    getGovActionBuilder = async () => {
+        let govActionBuilder;
+        if (this.state.govActionBuilder){
+            govActionBuilder = this.state.govActionBuilder;
+        } else {
+            govActionBuilder = VotingProposalBuilder.new();
+        }
+        return govActionBuilder;
+    }
+
+    setGovActionBuilder = async (govActionBuilderWithAction) => {
+        this.setState({govActionBuilder : govActionBuilderWithAction});
+
+        let actions = govActionBuilderWithAction.build();
+        let actionsInJson = [];
+        for (let i = 0; i < actions.len(); i++) {
+            actionsInJson.push(actions.get(i).to_json());
+        }
+        this.setState({govActsInTx : actionsInJson});
+    }
+
     buildSubmitConwayTx = async (builderSuccess) => {
         try {
+            console.log("Building, signing and submitting transaction")
             // Abort if error before building Tx
             if (!(await builderSuccess)){
-                throw "Error before building Tx, aborting Tx build."
+                throw new Error("Error before building Tx, aborting Tx build.")
             }
             // Initialize builder with protocol parameters
             const txBuilder = await this.initTransactionBuilder();
-            // Add certs, votes or gov actions to the transaction
-            if(this.state.certBuilder){
+            const transactionWitnessSet = TransactionWitnessSet.new();
+
+            // Add certs, votes, gov actions or donation to the transaction
+            if (this.state.certBuilder){
                 txBuilder.set_certs_builder(this.state.certBuilder);
                 this.setState({certBuilder : undefined});
             }
-            if(this.state.votingBuilder){
+            if (this.state.votingBuilder){
                 txBuilder.set_voting_builder(this.state.votingBuilder);
                 this.setState({votingBuilder : undefined});
             }
-            if(this.state.govActionBuilder){
+            if (this.state.govActionBuilder){
                 txBuilder.set_voting_proposal_builder(this.state.govActionBuilder);
                 this.setState({govActionBuilder : undefined});
+            }
+            if (this.state.treasuryDonationAmount){
+                txBuilder.set_donation(BigNum.from_str(this.state.treasuryDonationAmount));
+            }
+            if (this.state.treasuryValueAmount){
+                txBuilder.set_current_treasury_value(BigNum.from_str(this.state.treasuryValueAmount));
+            }
+            if(this.state.guardrailScriptUsed){
+                try{
+                    const scripts = PlutusScripts.new();
+                    scripts.add(PlutusScript.from_bytes_v3(Buffer.from(this.state.guardrailScript,'hex')));
+                    transactionWitnessSet.set_plutus_scripts(scripts)
+
+                    const redeemers = Redeemers.new();
+                    this.state.redeemers.forEach(r=>{
+                        redeemers.add(r);
+                    })
+                    transactionWitnessSet.set_redeemers(redeemers)
+
+                    const costModels = Costmdls.new()
+                    let v1costModel = CostModel.new()
+                    sanchoPParam.costModels.PlutusV1.forEach((val,index)=>{
+                        v1costModel.set(index,Int.new_i32(val))
+                    })
+                    costModels.insert(Language.new_plutus_v1(),v1costModel)
+
+                    let v2costModel = CostModel.new()
+                    sanchoPParam.costModels.PlutusV2.forEach((val,index)=>{
+                        v2costModel.set(index,Int.new_i32(val))
+                    })
+                    costModels.insert(Language.new_plutus_v2(),v2costModel)
+
+                    let v3costModel = CostModel.new()
+                    sanchoPParam.costModels.PlutusV3.forEach((val,index)=>{
+                        v3costModel.set(index,Int.new_i32(val))
+                    })
+                    costModels.insert(Language.new_plutus_v3(),v3costModel)
+                                        
+                    txBuilder.calc_script_data_hash(costModels)
+                }
+                catch(e){
+                    console.error("App.buildSubmitConwayTx : if(this.state.guardrailScriptUsed)",e)
+                    throw e
+                }
             }
             
             // Set output and change addresses to those of our wallet
             const shelleyOutputAddress = Address.from_bech32(this.state.usedAddress);
             const shelleyChangeAddress = Address.from_bech32(this.state.changeAddress);
             
-            // Add output of 3 ADA to the address of our wallet
-            // 3 is used incase of Stake key deposit refund
+            // Add output of 1 ADA plus total needed for refunds 
+            let outputValue = BigNum.from_str('1000000')
+
+            // Ensure the total output is larger than total implicit inputs (refunds / withdrawals)
+            if (!txBuilder.get_implicit_input().is_zero()){
+                outputValue = outputValue.checked_add(txBuilder.get_implicit_input().coin())
+            }
+
+            // add output to the transaction
             txBuilder.add_output(
                 TransactionOutput.new(
                     shelleyOutputAddress,
-                    Value.new(BigNum.from_str("3000000"))
+                    Value.new(outputValue)
                 ),
             );
             // Find the available UTxOs in the wallet and use them as Inputs for the transaction
             await this.getUtxos();
             const txUnspentOutputs = await this.getTxUnspentOutputs();
-            // Use UTxO selection strategy 2
-            txBuilder.add_inputs_from(txUnspentOutputs, 2)
 
-            // Set change address, incase too much ADA provided for fee
-            txBuilder.add_change_if_needed(shelleyChangeAddress)
+            // Use UTxO selection strategy 2 and add change address to be used if needed
+            const changeConfig = ChangeConfig.new(shelleyChangeAddress);
+            
+            // Use UTxO selection strategy 2 if strategy 3 fails
+            try {
+                txBuilder.add_inputs_from_and_change(txUnspentOutputs, 3, changeConfig);
+            } catch (e) {
+                console.error(e);
+                txBuilder.add_inputs_from_and_change(txUnspentOutputs, 2, changeConfig);
+            }
+
             // Build transaction body
             const txBody = txBuilder.build();
             // Make a full transaction, passing in empty witness set
-            const transactionWitnessSet = TransactionWitnessSet.new();
             const tx = Transaction.new(
                 txBody,
                 TransactionWitnessSet.from_bytes(transactionWitnessSet.to_bytes()),
@@ -601,6 +853,8 @@ class App extends React.Component {
 
             // Ask wallet to to provide signature (witnesses) for the transaction
             let txVkeyWitnesses;
+            // Log the CBOR of tx to console
+            console.log("UnsignedTx: ", Buffer.from(tx.to_bytes(), "utf8").toString("hex"));
             txVkeyWitnesses = await this.API.signTx(Buffer.from(tx.to_bytes(), "utf8").toString("hex"), true);
             // Create witness set object using the witnesses provided by the wallet
             txVkeyWitnesses = TransactionWitnessSet.from_bytes(Buffer.from(txVkeyWitnesses, "hex"));
@@ -613,38 +867,53 @@ class App extends React.Component {
             
             console.log("SignedTx: ", Buffer.from(signedTx.to_bytes(), "utf8").toString("hex"))
             // console.log("Signed Tx: ", signedTx.to_json());
+
+            const cip95ResultWitness = Buffer.from(txVkeyWitnesses.to_bytes(), "utf8").toString("hex");
+            this.setState({cip95ResultWitness});
             
-            // Submit built signed transaction to chain, via wallet's submit transaction endpoint
+            this.resetSomeState();
+
+            if (await this.submitConwayTx(signedTx)){
+                // Reset  state
+                this.setState({cip95MetadataURL : undefined});
+                this.setState({cip95MetadataHash : undefined});
+                this.setState({totalRefunds : undefined});
+            }
+        } catch (err) {
+            console.error("App.buildSubmitConwayTx",err);
+            await this.refreshData();
+            this.setState({signAndSubmitError : (err)})
+        }
+    }
+
+    submitConwayTx = async (signedTx) => {
+        try {
             const result = await this.API.submitTx(Buffer.from(signedTx.to_bytes(), "utf8").toString("hex"));
-            console.log("Built and submitted transaction: ", result)
+            console.log("Submitted transaction hash", result)
             // Set results so they can be rendered
             const cip95ResultTx = Buffer.from(signedTx.to_bytes(), "utf8").toString("hex");
-            const cip95ResultHash = result;
-            const cip95ResultWitness = Buffer.from(txVkeyWitnesses.to_bytes(), "utf8").toString("hex");
             this.setState({cip95ResultTx});
-            this.setState({cip95ResultHash});
-            this.setState({cip95ResultWitness});
-            // Reset anchor state
-            this.setState({cip95MetadataURL : undefined});
-            this.setState({cip95MetadataHash : undefined});
-
+            this.setState({cip95ResultHash : result});
+            return true;
         } catch (err) {
-            console.log("Error during build, sign and submit transaction");
+            console.log("Error during submission of transaction");
             console.log(err);
-            await this.refreshData();
+            this.setState({signAndSubmitError : (err)})
+            return false;
         }
     }
 
     addAuthorizeHotCredCert = async () => {
-        const certBuilder = CertificatesBuilder.new();
-        const certBuilderWithAuthHot= buildAuthorizeHotCredCert(
+        this.refreshErrorState();
+        let certBuilder = await this.getCertBuilder();
+        console.log("Adding CC authorize hot credential cert to transaction")
+        const certBuilderWithAuthorizeHotCredCert = buildAuthorizeHotCredCert(
             certBuilder, 
-            this.state.coldCredential,
-            this.state.hotCredential,
+            this.state.ccColdCred,
+            this.state.ccHotCred,
         );
-            
-        if (certBuilderWithAuthHot){
-            this.setState({certBuilder : certBuilderWithAuthHot});
+        if (certBuilderWithAuthorizeHotCredCert){
+            await this.setCertBuilder(certBuilderWithAuthorizeHotCredCert)
             return true;
         } else {
             return false;
@@ -652,39 +921,68 @@ class App extends React.Component {
     }
 
     addResignColdCredCert = async () => {
-        const certBuilder = CertificatesBuilder.new();
-        const certBuilderWithResignCred = buildResignColdCredCert(
+        this.refreshErrorState();
+        let certBuilder = await this.getCertBuilder();
+        console.log("Adding CC resign cold credential cert to transaction")
+
+        let certBuilderWithResignColdCredCert;
+        
+        if (this.state.cip95MetadataURL && this.state.cip95MetadataHash) {
+            certBuilderWithResignColdCredCert = buildResignColdCredCert(
             certBuilder, 
-            this.state.coldCredential,
-            this.state.hotCredential,
-            this.cip95MetadataURL,
-            this.cip95MetadataHash,
-        );
-            
-        if (certBuilderWithResignCred){
-            this.setState({certBuilder : certBuilderWithResignCred});
+            this.state.ccColdCred,
+            this.state.cip95MetadataURL,
+            this.state.cip95MetadataHash
+            );
+        } else {
+            certBuilderWithResignColdCredCert = buildResignColdCredCert(
+                certBuilder, 
+                this.state.ccColdCred
+            );
+        }
+        if (certBuilderWithResignColdCredCert){
+            await this.setCertBuilder(certBuilderWithResignColdCredCert)
             return true;
         } else {
             return false;
         }
     }
 
-    addVote = async () => {
-        const votingBuilder = VotingBuilder.new();
-        const votingBuilderWithCCVote = buildCCVote(
-            votingBuilder, 
-            this.state.hotCredential,
-            this.state.voteGovActionTxHash,
-            this.state.voteGovActionIndex,
-            this.state.voteChoice,
-            this.cip95MetadataURL,
-            this.cip95MetadataHash,
-        );
-            
-        if (votingBuilderWithCCVote){
-            this.setState({votingBuilder : votingBuilderWithCCVote});
+    addCCVote = async () => {
+        this.refreshErrorState();
+        let votingBuilder = await this.getVotingBuilder();
+        console.log("Adding CC vote to transaction")
+        try {
+            const voter = Voter.new_constitutional_committee_hot_key(keyHashStringToCredential(this.state.hotCredential));
+            // What is being voted on
+            const govActionId = GovernanceActionId.new(
+                TransactionHash.from_hex(this.state.voteGovActionTxHash), this.state.voteGovActionIndex);
+            // Voting choice
+            let votingChoice;
+            if ((this.state.voteChoice).toUpperCase() === "YES") {
+                votingChoice = 1
+            } else if ((this.state.voteChoice).toUpperCase() === "NO") {
+                votingChoice = 0
+            } else if ((this.state.voteChoice).toUpperCase() === "ABSTAIN") {
+                votingChoice = 2
+            }
+            let votingProcedure;
+            if (this.state.cip95MetadataURL && this.state.cip95MetadataHash) {
+                const anchorURL = URL.new(this.state.cip95MetadataURL);
+                const anchorHash = AnchorDataHash.from_hex(this.state.cip95MetadataHash);
+                const anchor = Anchor.new(anchorURL, anchorHash);
+                votingProcedure = VotingProcedure.new_with_anchor(votingChoice, anchor);
+            } else {
+                votingProcedure = VotingProcedure.new(votingChoice);
+            };
+            // Add vote to vote builder
+            votingBuilder.add(voter, govActionId, votingProcedure);
+            await this.setVotingBuilder(votingBuilder)
             return true;
-        } else {
+        } catch (err) {
+            this.setState({buildingError : String(err)})
+            this.resetSomeState();
+            console.log(err);
             return false;
         }
     }
@@ -698,9 +996,11 @@ class App extends React.Component {
         return (
             <div style={{margin: "20px"}}>
 
-                <h1>✨CC test dApp✨</h1>
+                <h1>✨Constitutional Committee test dApp✨</h1>
 
                 <input type="checkbox" checked={this.state.selectedCIP95} onChange={this.handleCIP95Select}/> Enable CIP-95?
+                <input type="checkbox" checked={this.state.seeCIP30} onChange={this.handleSeeCIP30}/> See CIP30 info?
+                <input type="checkbox" checked={this.state.seeCIP95} onChange={this.handleSeeCIP95}/> See CIP95 info?
 
                 <div style={{paddingTop: "10px"}}>
                     <div style={{marginBottom: 15}}>Select wallet:</div>
@@ -722,27 +1022,51 @@ class App extends React.Component {
                     </RadioGroup>
                 </div>
                 <button style={{padding: "20px"}} onClick={this.refreshData}>Refresh</button> 
-                <p><span style={{fontWeight: "bold"}}>Wallet Connected: </span>{`${this.state.walletIsEnabled}`}</p>
                 <hr style={{marginTop: "10px", marginBottom: "10px"}}/>
-                <h1>CIP-95 🤠</h1>
-                <p><span style={{fontWeight: "bold"}}>.cip95.getPubDRepKey(): </span>{this.state.dRepKey}</p>
-                <p><span style={{fontWeight: "lighter"}}>Hex DRep ID (Pub DRep Key hash): </span>{this.state.dRepID}</p>
-                <p><span style={{fontWeight: "lighter"}}>Bech32 DRep ID (Pub DRep Key hash): </span>{this.state.dRepIDBech32}</p>
-                <p><span style={{ fontWeight: "bold" }}>.cip95.getRegisteredPubStakeKeys():</span></p>
-                <ul>{this.state.regStakeKeys && this.state.regStakeKeys.length > 0 ? this.state.regStakeKeys.map((item, index) => ( <li style={{ fontSize: "12px" }} key={index}>{item}</li>)) : <li>No registered public stake keys returned.</li>}</ul>
-                <p><span style={{fontWeight: "lighter"}}> First registered Stake Key Hash (hex): </span>{this.state.regStakeKeyHashHex}</p>
-                <p><span style={{ fontWeight: "bold" }}>.cip95.getUnregisteredPubStakeKeys():</span></p>
-                <ul>{this.state.regStakeKeys && this.state.unregStakeKeys.length > 0 ? this.state.unregStakeKeys.map((item, index) => ( <li style={{ fontSize: "12px" }} key={index}>{item}</li>)) : <li>No unregistered public stake keys returned.</li>}</ul>
-                <p><span style={{fontWeight: "lighter"}}> First unregistered Stake Key Hash (hex): </span>{this.state.unregStakeKeyHashHex}</p>
+
+                { this.state.seeCIP30 && (
+                    <>
+                    <h3>CIP-30 Initial API</h3>
+                    <p><span style={{fontWeight: "bold"}}>Wallet Found: </span>{`${this.state.walletFound}`}</p>
+                    <p><span style={{fontWeight: "bold"}}>Wallet Connected: </span>{`${this.state.walletIsEnabled}`}</p>
+                    <p><span style={{ fontWeight: "bold" }}>.supportedExtensions:</span></p>
+                    <ul>{this.state.supportedExtensions && this.state.supportedExtensions.length > 0 ? this.state.supportedExtensions.map((item, index) => ( <li style={{ fontSize: "12px" }} key={index}>{item.cip}</li>)) : <li>No supported extensions found.</li>}</ul>
+                    <h3>CIP-30 Full API</h3>
+                    <p><span style={{fontWeight: "bold"}}>Network Id (0 = testnet; 1 = mainnet): </span>{this.state.networkId}</p>
+                    <p><span style={{fontWeight: "bold"}}>.getUTxOs(): </span>{this.state.Utxos?.map(x => <li style={{fontSize: "10px"}} key={`${x.str}${x.multiAssetStr}`}>{`${x.str}${x.multiAssetStr}`}</li>)}</p>
+                    <p style={{paddingTop: "10px"}}><span style={{fontWeight: "bold"}}>Balance: </span>{this.state.balance}</p>
+                    <p><span style={{fontWeight: "bold"}}>.getChangeAddress(): </span>{this.state.changeAddress}</p>
+                    <p><span style={{fontWeight: "bold"}}>.getRewardsAddress(): </span>{this.state.rewardAddress}</p>
+                    <p><span style={{ fontWeight: "bold" }}>.getExtensions():</span></p>
+                    <ul>{this.state.enabledExtensions && this.state.enabledExtensions.length > 0 ? this.state.enabledExtensions.map((item, index) => ( <li style={{ fontSize: "12px" }} key={index}>{item.cip}</li>)) : <li>No extensions enabled.</li>}</ul>
+                    <hr style={{marginTop: "40px", marginBottom: "10px"}}/>
+                    </>
+                )}
                 
-                <hr style={{marginTop: "10px", marginBottom: "10px"}}/>
+                { this.state.seeCIP95 && (
+                    <>
+                    <h1>CIP-95 🤠</h1>
+                    <p><span style={{fontWeight: "bold"}}>.cip95.getPubDRepKey(): </span>{this.state.dRepKey}</p>
+                    <p><span style={{fontWeight: "lighter"}}>Hex DRep ID (Pub DRep Key hash): </span>{this.state.dRepID}</p>
+                    <p><span style={{fontWeight: "lighter"}}>Bech32 DRep ID (Pub DRep Key hash): </span>{this.state.dRepIDBech32}</p>
+                    <p><span style={{ fontWeight: "bold" }}>.cip95.getRegisteredPubStakeKeys():</span></p>
+                    <ul>{this.state.regStakeKeys && this.state.regStakeKeys.length > 0 ? this.state.regStakeKeys.map((item, index) => ( <li style={{ fontSize: "12px" }} key={index}>{item}</li>)) : <li>No registered public stake keys returned.</li>}</ul>
+                    <p><span style={{fontWeight: "lighter"}}> First registered Stake Key Hash (hex): </span>{this.state.regStakeKeyHashHex}</p>
+                    <p><span style={{ fontWeight: "bold" }}>.cip95.getUnregisteredPubStakeKeys():</span></p>
+                    <ul>{this.state.regStakeKeys && this.state.unregStakeKeys.length > 0 ? this.state.unregStakeKeys.map((item, index) => ( <li style={{ fontSize: "12px" }} key={index}>{item}</li>)) : <li>No unregistered public stake keys returned.</li>}</ul>
+                    <p><span style={{fontWeight: "lighter"}}> First unregistered Stake Key Hash (hex): </span>{this.state.unregStakeKeyHashHex}</p>
+                    <hr style={{marginTop: "10px", marginBottom: "10px"}}/>
+                    </>
+                )}
+
                 <p><span style={{fontWeight: "bold"}}>Use CIP-95 .signTx(): </span></p>
+
                 <Tabs id="cip95-basic" vertical={true} onChange={this.handle95TabId} selectedTab95Id={this.state.selected95BasicTabId}>
                     <Tab id="1" title="🔥 Authorize CC Hot Credential" panel={
                         <div style={{marginLeft: "20px"}}>
                             <FormGroup
-                                helperText=""
-                                label="Cold Credential"
+                                helperText="(Bech32 or Hex encoded)"
+                                label="CC Cold Credential"
                             >
                                 <InputGroup
                                     disabled={false}
@@ -752,8 +1076,8 @@ class App extends React.Component {
                             </FormGroup>
 
                             <FormGroup
-                                helperText=""
-                                label="Hot Credential"
+                                helperText="(Bech32 or Hex encoded)"
+                                label="CC Hot Credential"
                             >
                                 <InputGroup
                                     disabled={false}
@@ -761,30 +1085,19 @@ class App extends React.Component {
                                     onChange={(event) => this.setState({hotCredential: event.target.value})}
                                 />
                             </FormGroup>
-                            <button style={{padding: "10px"}} onClick={ () => this.buildSubmitConwayTx(this.addAuthorizeHotCredCert())}>Build, .signTx() and .submitTx()</button>
+                            <button style={{padding: "10px"}} onClick={ () => this.buildSubmitConwayTx(this.addAuthorizeHotCredCert())}>Build, add to Tx</button>
                         </div>
                     } />
                     <Tab id="2" title="🧊 Resign CC Cold Credential" panel={
                         <div style={{marginLeft: "20px"}}>
                             <FormGroup
-                                helperText=""
-                                label="Cold Credential"
+                                helperText="(Bech32 or Hex encoded)"
+                                label="CC Cold Credential"
                             >
                                 <InputGroup
                                     disabled={false}
                                     leftIcon="id-number"
                                     onChange={(event) => this.setState({coldCredential: event.target.value})}
-                                />
-                            </FormGroup>
-
-                            <FormGroup
-                                helperText=""
-                                label="Hot Credential"
-                            >
-                                <InputGroup
-                                    disabled={false}
-                                    leftIcon="id-number"
-                                    onChange={(event) => this.setState({hotCredential: event.target.value})}
                                 />
                             </FormGroup>
 
@@ -809,14 +1122,14 @@ class App extends React.Component {
                                     onChange={(event) => this.setState({cip95MetadataHash: event.target.value})}
                                 />
                             </FormGroup>
-                            <button style={{padding: "10px"}} onClick={ () => this.buildSubmitConwayTx(this.addResignColdCredCert())}>Build, .signTx() and .submitTx()</button>
+                            <button style={{padding: "10px"}} onClick={ () => this.buildSubmitConwayTx(this.addResignColdCredCert())}>Build, add to Tx</button>
                         </div>
                     } />
                     <Tab id="3" title="🗳 CC Vote" panel={
                         <div style={{marginLeft: "20px"}}>
 
                             <FormGroup
-                                helperText=""
+                                helperText="(Bech32 or Hex encoded)"
                                 label="CC Hot Credential"
                             >
                                 <InputGroup
@@ -879,7 +1192,7 @@ class App extends React.Component {
                                     onChange={(event) => this.setState({cip95MetadataHash: event.target.value})}
                                 />
                             </FormGroup>
-                            <button style={{padding: "10px"}} onClick={ () => this.buildSubmitConwayTx(this.addVote())}>Build, .signTx() and .submitTx()</button>
+                            <button style={{padding: "10px"}} onClick={ () => this.buildSubmitConwayTx(this.addVote())}>Build, add to Tx</button>
                         </div>
                     } />
                     <Tab id="4" title=" 💯 Test Basic Transaction" panel={
@@ -892,14 +1205,62 @@ class App extends React.Component {
                     <Tabs.Expander />
                 </Tabs>
                 <hr style={{marginTop: "10px", marginBottom: "10px"}}/>
+                
+                <p><span style={{fontWeight: "bold"}}>Contents of transaction: </span></p>
 
-                <p><span style={{fontWeight: "bold"}}>CborHex Tx: </span>{this.state.cip95ResultTx}</p>
-                <p><span style={{fontWeight: "bold"}}>Tx Hash: </span>{this.state.cip95ResultHash}</p>
-                <p><span style={{fontWeight: "bold"}}>Witnesses: </span>{this.state.cip95ResultWitness}</p>
+                {!this.state.buildingError && !this.state.signAndSubmitError && (
+                    <ul>{this.state.govActsInTx.concat(this.state.certsInTx.concat(this.state.votesInTx)).length > 0 ? this.state.govActsInTx.concat(this.state.certsInTx.concat(this.state.votesInTx)).map((item, index) => ( <li style={{ fontSize: "12px" }} key={index}>{item}</li>)) : <li>No certificates, votes or gov actions in transaction.</li>}</ul>
+                )}
+                {[
+                    { title: "🚨 Error during building 🚨", error: this.state.buildingError },
+                    { title: "🚨 Error during sign and submit 🚨", error: this.state.signAndSubmitError }
+                ].map(({ title, error }, index) => (
+                    error && (
+                        <React.Fragment key={index}>
+                            <h5>{title}</h5>
+                            <div>
+                                {typeof error === 'object' && error !== null ? (
+                                    <ul>
+                                        {Object.entries(error).map(([key, value], i) => (
+                                            <li key={i}>
+                                                <strong>{key}:</strong> {typeof value === 'object' ? JSON.stringify(value) : value}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                ) : (
+                                    <p><span style={{ fontWeight: "bold" }}>{error}</span></p>
+                                )}
+                            </div>
+                        </React.Fragment>
+                    )
+                ))}
+
+                {this.state.treasuryDonationAmount && (
+                    <>
+                    <p><span style={{fontWeight: "lighter"}}> Treasury Donation Amount: </span>{this.state.treasuryDonationAmount}</p>
+                    </>
+                )}
+
+                {this.state.treasuryValueAmount && (
+                    <>
+                    <p><span style={{fontWeight: "lighter"}}> Treasury Value: </span>{this.state.treasuryValueAmount}</p>
+                    </>
+                )}
+                
+                <button style={{padding: "10px"}} onClick={ () => this.buildSubmitConwayTx(true) }>.signTx() and .submitTx()</button>
+                <button style={{padding: "10px"}} onClick={this.refreshData}>Refresh</button> 
 
                 <hr style={{marginTop: "10px", marginBottom: "10px"}}/>
+                {this.state.cip95ResultTx !== '' && this.state.cip95ResultHash !== '' && (
+                <>
+                    <h5>🚀 Transaction signed and submitted successfully 🚀</h5>
+                </>
+                )}
+                <p><span style={{fontWeight: "bold"}}>Tx Hash: </span>{this.state.cip95ResultHash}</p>
+                <p><span style={{fontWeight: "bold"}}>CborHex Tx: </span>{this.state.cip95ResultTx}</p>
+                <hr style={{marginTop: "2px", marginBottom: "10px"}}/>
                 
-                <h5>✨Powered by CSL 12 beta 2✨</h5>
+                <h5>💖 Powered by CSL 12.0.0 beta 2 💖</h5>
             </div>
         )
     }

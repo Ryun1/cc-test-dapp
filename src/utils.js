@@ -1,23 +1,17 @@
 import {
-    BigNum,
     Credential,
     Certificate,
     Ed25519KeyHash,
-    DRep,
     CommitteeHotAuth,
     CommitteeColdResign,
     Anchor,
-    Voter,
-    GovernanceActionId,
-    TransactionHash,
-    VotingProcedure,
     AnchorDataHash,
     URL,
 } from "@emurgo/cardano-serialization-lib-asmjs"
 
 // Helper functions
 
-function keyHashStringToCredential (input) {
+export function keyHashStringToCredential (input) {
     try {
       const keyHash = Ed25519KeyHash.from_hex(input);
       const cred = Credential.from_keyhash(keyHash);
@@ -65,34 +59,6 @@ export function buildResignColdCredCert(certBuilder, coldCredential, anchorURL=u
         return certBuilder;
     } catch (err) {
         console.error(err);
-        return null;
-    }
-}
-
-export function buildCCVote(votingBuilder, hotCredential, govActionTx, govActionTxIndex, votingChoice, anchorURL=undefined, anchorHash=undefined) {
-    try {
-        const voter = Voter.new_constitutional_committee_hot_key(keyHashStringToCredential(hotCredential));
-        const govActionId = GovernanceActionId.new(TransactionHash.from_hex(govActionTx), govActionTxIndex);
-        // Voting choice
-        let vote;
-        if ((votingChoice).toUpperCase() === "YES") {
-            vote = 1
-        } else if ((votingChoice).toUpperCase() === "NO") {
-            vote = 0
-        } else if ((votingChoice).toUpperCase() === "ABSTAIN") {
-            vote = 2
-        }
-        let votingProcedure;
-        if (anchorURL && anchorHash) {
-            const anchor = Anchor.new(URL.new(anchorURL), AnchorDataHash.from_hex(anchorHash));
-            votingProcedure = VotingProcedure.new_with_anchor(vote, anchor);
-        } else {
-            votingProcedure = VotingProcedure.new(vote);
-        };
-        votingBuilder.add(voter, govActionId, votingProcedure);
-        return votingBuilder; 
-    } catch (err) {
-        console.log(err);
         return null;
     }
 }
