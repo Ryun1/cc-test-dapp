@@ -1,21 +1,21 @@
 {
   "files": {
-    "main.css": "/sancho-cc-dapp/static/css/main.d960811b.css",
-    "main.js": "/sancho-cc-dapp/static/js/main.c830444f.js",
-    "static/js/787.948e2b8b.chunk.js": "/sancho-cc-dapp/static/js/787.948e2b8b.chunk.js",
-    "static/media/icons-20.eot": "/sancho-cc-dapp/static/media/icons-20.cde033c5d3f24283f757.eot",
-    "static/media/icons-20.woff": "/sancho-cc-dapp/static/media/icons-20.1ef633d3a28d0986f63e.woff",
-    "static/media/icons-20.ttf": "/sancho-cc-dapp/static/media/icons-20.57b3e708b232fdcb64f9.ttf",
-    "static/media/icons-16.eot": "/sancho-cc-dapp/static/media/icons-16.2368f88a078780d80145.eot",
-    "static/media/icons-16.woff": "/sancho-cc-dapp/static/media/icons-16.1645f50fb7f7c109f64e.woff",
-    "static/media/icons-16.ttf": "/sancho-cc-dapp/static/media/icons-16.13933033991f62d6bb64.ttf",
-    "index.html": "/sancho-cc-dapp/index.html",
-    "main.d960811b.css.map": "/sancho-cc-dapp/static/css/main.d960811b.css.map",
-    "main.c830444f.js.map": "/sancho-cc-dapp/static/js/main.c830444f.js.map",
-    "787.948e2b8b.chunk.js.map": "/sancho-cc-dapp/static/js/787.948e2b8b.chunk.js.map"
+    "main.css": "/cc-test-dapp/static/css/main.cac28b61.css",
+    "main.js": "/cc-test-dapp/static/js/main.451cadbb.js",
+    "static/js/787.d4eedcba.chunk.js": "/cc-test-dapp/static/js/787.d4eedcba.chunk.js",
+    "static/media/icons-20.eot": "/cc-test-dapp/static/media/icons-20.cde033c5d3f24283f757.eot",
+    "static/media/icons-20.woff": "/cc-test-dapp/static/media/icons-20.1ef633d3a28d0986f63e.woff",
+    "static/media/icons-20.ttf": "/cc-test-dapp/static/media/icons-20.57b3e708b232fdcb64f9.ttf",
+    "static/media/icons-16.eot": "/cc-test-dapp/static/media/icons-16.2368f88a078780d80145.eot",
+    "static/media/icons-16.woff": "/cc-test-dapp/static/media/icons-16.1645f50fb7f7c109f64e.woff",
+    "static/media/icons-16.ttf": "/cc-test-dapp/static/media/icons-16.13933033991f62d6bb64.ttf",
+    "index.html": "/cc-test-dapp/index.html",
+    "main.cac28b61.css.map": "/cc-test-dapp/static/css/main.cac28b61.css.map",
+    "main.451cadbb.js.map": "/cc-test-dapp/static/js/main.451cadbb.js.map",
+    "787.d4eedcba.chunk.js.map": "/cc-test-dapp/static/js/787.d4eedcba.chunk.js.map"
   },
   "entrypoints": [
-    "static/css/main.d960811b.css",
-    "static/js/main.c830444f.js"
+    "static/css/main.cac28b61.css",
+    "static/js/main.451cadbb.js"
   ]
 }
