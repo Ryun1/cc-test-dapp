@@ -907,15 +907,18 @@ class App extends React.Component {
         this.refreshErrorState();
         let certBuilder = await this.getCertBuilder();
         console.log("Adding CC authorize hot credential cert to transaction")
-        const certBuilderWithAuthorizeHotCredCert = buildAuthorizeHotCredCert(
-            certBuilder, 
-            this.state.ccColdCred,
-            this.state.ccHotCred,
-        );
-        if (certBuilderWithAuthorizeHotCredCert){
+        try {
+            const certBuilderWithAuthorizeHotCredCert = buildAuthorizeHotCredCert(
+                certBuilder, 
+                this.state.coldCredential,
+                this.state.hotCredential,
+            );
             await this.setCertBuilder(certBuilderWithAuthorizeHotCredCert)
             return true;
-        } else {
+        } catch (err) {
+            this.setState({buildingError : String(err)})
+            this.resetSomeState();
+            console.log(err);
             return false;
         }
     }
@@ -924,26 +927,27 @@ class App extends React.Component {
         this.refreshErrorState();
         let certBuilder = await this.getCertBuilder();
         console.log("Adding CC resign cold credential cert to transaction")
-
-        let certBuilderWithResignColdCredCert;
-        
-        if (this.state.cip95MetadataURL && this.state.cip95MetadataHash) {
-            certBuilderWithResignColdCredCert = buildResignColdCredCert(
-            certBuilder, 
-            this.state.ccColdCred,
-            this.state.cip95MetadataURL,
-            this.state.cip95MetadataHash
-            );
-        } else {
-            certBuilderWithResignColdCredCert = buildResignColdCredCert(
+        try {
+            let certBuilderWithResignColdCredCert;
+            if (this.state.cip95MetadataURL && this.state.cip95MetadataHash) {
+                certBuilderWithResignColdCredCert = buildResignColdCredCert(
                 certBuilder, 
-                this.state.ccColdCred
-            );
-        }
-        if (certBuilderWithResignColdCredCert){
+                this.state.coldCredential,
+                this.state.cip95MetadataURL,
+                this.state.cip95MetadataHash
+                );
+            } else {
+                certBuilderWithResignColdCredCert = buildResignColdCredCert(
+                    certBuilder, 
+                    this.state.coldCredential
+                );
+            }
             await this.setCertBuilder(certBuilderWithResignColdCredCert)
             return true;
-        } else {
+        } catch (err) {
+            this.setState({buildingError : String(err)})
+            this.resetSomeState();
+            console.log(err);
             return false;
         }
     }
@@ -999,8 +1003,6 @@ class App extends React.Component {
                 <h1>✨Constitutional Committee test dApp✨</h1>
 
                 <input type="checkbox" checked={this.state.selectedCIP95} onChange={this.handleCIP95Select}/> Enable CIP-95?
-                <input type="checkbox" checked={this.state.seeCIP30} onChange={this.handleSeeCIP30}/> See CIP30 info?
-                <input type="checkbox" checked={this.state.seeCIP95} onChange={this.handleSeeCIP95}/> See CIP95 info?
 
                 <div style={{paddingTop: "10px"}}>
                     <div style={{marginBottom: 15}}>Select wallet:</div>
@@ -1022,6 +1024,27 @@ class App extends React.Component {
                     </RadioGroup>
                 </div>
                 <button style={{padding: "20px"}} onClick={this.refreshData}>Refresh</button> 
+                
+                <hr style={{marginTop: "10px", marginBottom: "10px"}}/>
+                <label>
+                <span style={{ paddingRight: "5px", paddingLeft: '20px' }}>See CIP30 info?</span>
+                    <input
+                        type="checkbox"
+                        style={{ paddingRight: "10px", paddingLeft: "10px"}}
+                        checked={this.state.seeCIP30}
+                        onChange={() => this.setState({ seeCIP30: !this.state.seeCIP30 })}
+                    />
+                </label>
+
+                <label>
+                <span style={{ paddingRight: "5px", paddingLeft: '20px' }}>See CIP95 info?</span>
+                    <input
+                        type="checkbox"
+                        style={{ paddingRight: "10px", paddingLeft: "10px"}}
+                        checked={this.state.seeCIP95}
+                        onChange={() => this.setState({ seeCIP95: !this.state.seeCIP95 })}
+                    />
+                </label>
                 <hr style={{marginTop: "10px", marginBottom: "10px"}}/>
 
                 { this.state.seeCIP30 && (
@@ -1059,8 +1082,6 @@ class App extends React.Component {
                     </>
                 )}
 
-                <p><span style={{fontWeight: "bold"}}>Use CIP-95 .signTx(): </span></p>
-
                 <Tabs id="cip95-basic" vertical={true} onChange={this.handle95TabId} selectedTab95Id={this.state.selected95BasicTabId}>
                     <Tab id="1" title="🔥 Authorize CC Hot Credential" panel={
                         <div style={{marginLeft: "20px"}}>
@@ -1085,7 +1106,7 @@ class App extends React.Component {
                                     onChange={(event) => this.setState({hotCredential: event.target.value})}
                                 />
                             </FormGroup>
-                            <button style={{padding: "10px"}} onClick={ () => this.buildSubmitConwayTx(this.addAuthorizeHotCredCert())}>Build, add to Tx</button>
+                            <button style={{padding: "10px"}} onClick={ () => this.addAuthorizeHotCredCert()}>Build, add to Tx</button>
                         </div>
                     } />
                     <Tab id="2" title="🧊 Resign CC Cold Credential" panel={
@@ -1122,7 +1143,7 @@ class App extends React.Component {
                                     onChange={(event) => this.setState({cip95MetadataHash: event.target.value})}
                                 />
                             </FormGroup>
-                            <button style={{padding: "10px"}} onClick={ () => this.buildSubmitConwayTx(this.addResignColdCredCert())}>Build, add to Tx</button>
+                            <button style={{padding: "10px"}} onClick={ () => this.addResignColdCredCert()}>Build, add to Tx</button>
                         </div>
                     } />
                     <Tab id="3" title="🗳 CC Vote" panel={
@@ -1192,7 +1213,7 @@ class App extends React.Component {
                                     onChange={(event) => this.setState({cip95MetadataHash: event.target.value})}
                                 />
                             </FormGroup>
-                            <button style={{padding: "10px"}} onClick={ () => this.buildSubmitConwayTx(this.addVote())}>Build, add to Tx</button>
+                            <button style={{padding: "10px"}} onClick={ () => this.addCCVote()}>Build, add to Tx</button>
                         </div>
                     } />
                     <Tab id="4" title=" 💯 Test Basic Transaction" panel={
@@ -1234,18 +1255,6 @@ class App extends React.Component {
                         </React.Fragment>
                     )
                 ))}
-
-                {this.state.treasuryDonationAmount && (
-                    <>
-                    <p><span style={{fontWeight: "lighter"}}> Treasury Donation Amount: </span>{this.state.treasuryDonationAmount}</p>
-                    </>
-                )}
-
-                {this.state.treasuryValueAmount && (
-                    <>
-                    <p><span style={{fontWeight: "lighter"}}> Treasury Value: </span>{this.state.treasuryValueAmount}</p>
-                    </>
-                )}
                 
                 <button style={{padding: "10px"}} onClick={ () => this.buildSubmitConwayTx(true) }>.signTx() and .submitTx()</button>
                 <button style={{padding: "10px"}} onClick={this.refreshData}>Refresh</button> 
