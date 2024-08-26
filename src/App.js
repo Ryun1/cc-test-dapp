@@ -952,6 +952,45 @@ class App extends React.Component {
         }
     }
 
+    addMultiSigVote = async () => {
+        this.refreshErrorState();
+        let votingBuilder = await this.getVotingBuilder();
+        console.log("Adding a multi-sig CC vote to transaction")
+        try {
+            const voter = Voter.new_constitutional_committee_hot_key(keyHashStringToCredential(this.state.hotCredential));
+            // What is being voted on
+            const govActionId = GovernanceActionId.new(
+                TransactionHash.from_hex(this.state.voteGovActionTxHash), this.state.voteGovActionIndex);
+            // Voting choice
+            let votingChoice;
+            if ((this.state.voteChoice).toUpperCase() === "YES") {
+                votingChoice = 1
+            } else if ((this.state.voteChoice).toUpperCase() === "NO") {
+                votingChoice = 0
+            } else if ((this.state.voteChoice).toUpperCase() === "ABSTAIN") {
+                votingChoice = 2
+            }
+            let votingProcedure;
+            if (this.state.cip95MetadataURL && this.state.cip95MetadataHash) {
+                const anchorURL = URL.new(this.state.cip95MetadataURL);
+                const anchorHash = AnchorDataHash.from_hex(this.state.cip95MetadataHash);
+                const anchor = Anchor.new(anchorURL, anchorHash);
+                votingProcedure = VotingProcedure.new_with_anchor(votingChoice, anchor);
+            } else {
+                votingProcedure = VotingProcedure.new(votingChoice);
+            };
+            // Add vote to vote builder
+            votingBuilder.add(voter, govActionId, votingProcedure);
+            await this.setVotingBuilder(votingBuilder)
+            return true;
+        } catch (err) {
+            this.setState({buildingError : String(err)})
+            this.resetSomeState();
+            console.log(err);
+            return false;
+        }
+    }
+
     addCCVote = async () => {
         this.refreshErrorState();
         let votingBuilder = await this.getVotingBuilder();
