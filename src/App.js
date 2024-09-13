@@ -39,6 +39,12 @@ import {
     CostModel,
     Language,
     Int,
+    NativeScripts,
+    NativeScript,
+    ScriptPubkey,
+    ScriptAll,
+    RewardAddress,
+    NativeScriptSource,
 } from "@emurgo/cardano-serialization-lib-asmjs"
 import "./App.css";
 import {
@@ -114,9 +120,9 @@ class App extends React.Component {
             voteDelegationStakeCred: "",
             dRepRegTarget: "",
             dRepDeposit: "500000000",
-            voteGovActionTxHash: "",
-            voteGovActionIndex: "",
-            voteChoice: "",
+            voteGovActionTxHash: "ad70b525212e01d5b6c7216e9b8163e27f90b7d0282f85ae57d125f732fc88ab",
+            voteGovActionIndex: "0",
+            voteChoice: "yes",
             stakeKeyReg: "",
             stakeKeyCoin: "2000000",
             stakeKeyWithCoin: false,
@@ -130,6 +136,9 @@ class App extends React.Component {
             // see things
             seeCIP95: false,
             seeCIP30: false,
+            // multi-sig-cc
+            multiSigScript: undefined,
+            requiredSigningKeys: [],
         }
 
         /**
@@ -431,9 +440,9 @@ class App extends React.Component {
             voteDelegationStakeCred: "",
             dRepRegTarget: "",
             dRepDeposit: "500000000",
-            voteGovActionTxHash: "",
-            voteGovActionIndex: "",
-            voteChoice: "",
+            voteGovActionTxHash: "ad70b525212e01d5b6c7216e9b8163e27f90b7d0282f85ae57d125f732fc88ab",
+            voteGovActionIndex: "0",
+            voteChoice: "yes",
             stakeKeyReg: "",
             stakeKeyCoin: "2000000",
             stakeKeyWithCoin: false,
@@ -444,6 +453,9 @@ class App extends React.Component {
             comboStakeCred: "",
             comboStakeRegCoin: "2000000",
             comboVoteDelegTarget: "",
+            // multi-sig-cc
+            // multiSigScript: undefined,
+            requiredSigningKeys: [],
         });
     }
 
@@ -488,6 +500,7 @@ class App extends React.Component {
                         await this.getPubDRepKey();
                         await this.getRegisteredPubStakeKeys();
                         await this.getUnregisteredPubStakeKeys();
+                        this.createNativeScript();
                     }
                 // else if connection failed, reset all state
                 } else {
@@ -710,12 +723,6 @@ class App extends React.Component {
 
     setVotingBuilder = async (votingBuilderWithVote) => {
         this.setState({votingBuilder : votingBuilderWithVote});
-
-        // let votes = votingBuilderWithVote.build();
-        // let votesInJson = [];
-        // for (let i = 0; i < votes.get_voters().len(); i++) {
-        //     votesInJson.push(votes.get(i).to_json());
-        // }
         this.setState({votesInTx : votingBuilderWithVote.build().to_json()});
     }
 
@@ -952,12 +959,78 @@ class App extends React.Component {
         }
     }
 
+    // Generate a all sign native script using connected wallet's keys
+    createNativeScript = async () => {
+        const scripts = NativeScripts.new();
+
+        // get payment cred from change address add as script
+        const changeAddress = Address.from_bech32(this.state.changeAddress);
+        const paymentCred = changeAddress.payment_cred();
+        const paymentCredHash = paymentCred.to_keyhash();
+
+        const paymentKeyScript = NativeScript.new_script_pubkey(
+            ScriptPubkey.new(paymentCredHash)
+        );
+        scripts.add(paymentKeyScript);
+
+        // get stake cred from rewards address add as script
+        const rewardAddress = RewardAddress.from_address(Address.from_bech32(this.state.rewardAddress));
+        const stakeCred = rewardAddress.payment_cred();
+        const stakeCredHash = stakeCred.to_keyhash();
+
+        const stakeKeyScript = NativeScript.new_script_pubkey(
+            ScriptPubkey.new(stakeCredHash)
+        );
+        scripts.add(stakeKeyScript);
+
+        // get DRep cred from pub DRep key add as script
+        // const dRepKeyScript = NativeScript.new_script_pubkey(
+        //     ScriptPubkey.new(Ed25519KeyHash.from_hex(this.state.dRepID))
+        // );
+        // scripts.add(dRepKeyScript);
+
+        const multiSigScript = NativeScript.new_script_all(
+            ScriptAll.new(scripts)
+        );
+        
+        // console.log("MultiSigScript: ", multiSigScript.to_json());
+        // console.log("Script Hex", multiSigScript.to_hex())
+
+        this.setState({multiSigScript});
+    }
+
+    handleMultiSigScriptInput = (input) => {
+        // check that this is a Native Script
+        try {
+            // Set the state 
+            const scripts = NativeScripts.from_hex(input);
+            this.setState({multiSigScript: scripts});
+
+            // Iterate through the scripts and get the required signing keys
+            let requiredSigningKeys = [];
+            for (let i = 0; i < scripts.len(); i++) {
+                const script = scripts.get(i);
+                requiredSigningKeys.push(script.required_keys());
+            }
+            this.setState({requiredSigningKeys});
+        } catch (err) {
+            console.error('Error in parsing native script:');
+            console.error(err);
+            this.setState({buildingError : {msg: 'Error in parsing native script', err: err}});
+            return;
+        };
+    }
+
     addMultiSigVote = async () => {
         this.refreshErrorState();
         let votingBuilder = await this.getVotingBuilder();
-        console.log("Adding a multi-sig CC vote to transaction")
+        console.log("Adding a multisig CC vote to transaction")
         try {
-            const voter = Voter.new_constitutional_committee_hot_key(keyHashStringToCredential(this.state.hotCredential));
+
+            // Get the credential from script
+            console.log("Your multisig script: ", this.state.multiSigScript.to_hex());
+            const hotCredential = Credential.from_scripthash((this.state.multiSigScript).hash());
+            const voter = Voter.new_constitutional_committee_hot_key(hotCredential);
             // What is being voted on
             const govActionId = GovernanceActionId.new(
                 TransactionHash.from_hex(this.state.voteGovActionTxHash), this.state.voteGovActionIndex);
@@ -980,7 +1053,8 @@ class App extends React.Component {
                 votingProcedure = VotingProcedure.new(votingChoice);
             };
             // Add vote to vote builder
-            votingBuilder.add(voter, govActionId, votingProcedure);
+            const multiSigScript = NativeScriptSource.new(this.state.multiSigScript);
+            votingBuilder.add_with_native_script(voter, govActionId, votingProcedure, multiSigScript);
             await this.setVotingBuilder(votingBuilder)
             return true;
         } catch (err) {
@@ -1217,7 +1291,7 @@ class App extends React.Component {
                                 <InputGroup
                                     disabled={false}
                                     leftIcon="id-number"
-                                    onChange={(event) => this.setState({voteGovActionTxIndex: event.target.value})}
+                                    onChange={(event) => this.setState({voteGovActionIndex: event.target.value})}
                                 />
                             </FormGroup>
 
@@ -1255,7 +1329,79 @@ class App extends React.Component {
                             <button style={{padding: "10px"}} onClick={ () => this.addCCVote()}>Build, add to Tx</button>
                         </div>
                     } />
-                    <Tab id="4" title=" 💯 Test Basic Transaction" panel={
+                    <Tab id="4" title="🗳 CC MultiSig Script Vote" panel={
+                        <div style={{marginLeft: "20px"}}>
+
+                            <FormGroup
+                                label="CC MultiSig Script"
+                                helperText="(Hex encoded)"
+                            >
+                                <InputGroup
+                                    disabled={false}
+                                    leftIcon="id-number"
+                                    onChange={(event) => this.handleMultiSigScriptInput(event.target.value)}
+                                    defaultValue={this.state.multiSigScript ? this.state.multiSigScript.to_hex() : ''}
+                                />
+                            </FormGroup>
+
+                            <FormGroup
+                                label="Gov Action Tx Hash"
+                            >
+                                <InputGroup
+                                    disabled={false}
+                                    leftIcon="id-number"
+                                    onChange={(event) => this.setState({voteGovActionTxHash: event.target.value})}
+                                    defaultValue={this.state.voteGovActionTxHash}
+                                />
+                            </FormGroup>
+
+                            <FormGroup
+                                label="Gov Action Tx Vote Index"
+                            >
+                                <InputGroup
+                                    disabled={false}
+                                    leftIcon="id-number"
+                                    onChange={(event) => this.setState({voteGovActionIndex: event.target.value})}
+                                    defaultValue={this.state.voteGovActionIndex}
+                                />
+                            </FormGroup>
+
+                            <FormGroup
+                                helperText="Yes | No | Abstain"
+                                label="Vote Choice"
+                            >
+                                <InputGroup
+                                    disabled={false}
+                                    leftIcon="id-number"
+                                    onChange={(event) => this.setState({voteChoice: event.target.value})}
+                                    defaultValue={this.state.voteChoice}
+                                />
+                            </FormGroup>
+
+                            <FormGroup
+                                label="Optional: Metadata URL"
+                            >
+                                <InputGroup
+                                    disabled={false}
+                                    leftIcon="id-number"
+                                    onChange={(event) => this.setState({cip95MetadataURL: event.target.value})}
+                                />
+                            </FormGroup>
+
+                            <FormGroup
+                                helperText=""
+                                label="Optional: Metadata Hash"
+                            >
+                                <InputGroup
+                                    disabled={false}
+                                    leftIcon="id-number"
+                                    onChange={(event) => this.setState({cip95MetadataHash: event.target.value})}
+                                />
+                            </FormGroup>
+                            <button style={{padding: "10px"}} onClick={ () => this.addMultiSigVote()}>Build, add to Tx</button>
+                        </div>
+                    } />
+                    <Tab id="5" title=" 💯 Test Basic Transaction" panel={
                         <div style={{marginLeft: "20px"}}>
 
                             <button style={{padding: "10px"}} onClick={ () => this.buildSubmitConwayTx(true) }>Build, .signTx() and .submitTx()</button>
