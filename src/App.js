@@ -39,6 +39,13 @@ import {
     CostModel,
     Language,
     Int,
+    NativeScripts,
+    NativeScript,
+    ScriptPubkey,
+    ScriptAll,
+    RewardAddress,
+    NativeScriptSource,
+    TransactionBody,
 } from "@emurgo/cardano-serialization-lib-asmjs"
 import "./App.css";
 import {
@@ -114,9 +121,9 @@ class App extends React.Component {
             voteDelegationStakeCred: "",
             dRepRegTarget: "",
             dRepDeposit: "500000000",
-            voteGovActionTxHash: "",
-            voteGovActionIndex: "",
-            voteChoice: "",
+            voteGovActionTxHash: "ad70b525212e01d5b6c7216e9b8163e27f90b7d0282f85ae57d125f732fc88ab",
+            voteGovActionIndex: "0",
+            voteChoice: "yes",
             stakeKeyReg: "",
             stakeKeyCoin: "2000000",
             stakeKeyWithCoin: false,
@@ -130,6 +137,13 @@ class App extends React.Component {
             // see things
             seeCIP95: false,
             seeCIP30: false,
+            seeCC: false,
+            seeMakeTxBody: true,
+            seeMakeWitness: false,
+            // multi-sig-cc
+            multiSigScript: undefined,
+            txBody: undefined,
+            txWitnesses: undefined,
         }
 
         /**
@@ -431,9 +445,9 @@ class App extends React.Component {
             voteDelegationStakeCred: "",
             dRepRegTarget: "",
             dRepDeposit: "500000000",
-            voteGovActionTxHash: "",
-            voteGovActionIndex: "",
-            voteChoice: "",
+            voteGovActionTxHash: "ad70b525212e01d5b6c7216e9b8163e27f90b7d0282f85ae57d125f732fc88ab",
+            voteGovActionIndex: "0",
+            voteChoice: "yes",
             stakeKeyReg: "",
             stakeKeyCoin: "2000000",
             stakeKeyWithCoin: false,
@@ -444,6 +458,10 @@ class App extends React.Component {
             comboStakeCred: "",
             comboStakeRegCoin: "2000000",
             comboVoteDelegTarget: "",
+            // multi-sig-cc
+            // multiSigScript: undefined,
+            txBody: undefined,
+            txWitnesses: undefined,
         });
     }
 
@@ -456,6 +474,8 @@ class App extends React.Component {
             const walletFound = this.checkIfWalletFound();
             this.resetSomeState();
             this.refreshErrorState();
+            await this.refreshCIP30State();
+            await this.refreshCIP95State();
             // If wallet found and CIP-95 selected perform CIP-30 initial API calls
             if (walletFound) {
                 await this.getAPIVersion();
@@ -488,6 +508,7 @@ class App extends React.Component {
                         await this.getPubDRepKey();
                         await this.getRegisteredPubStakeKeys();
                         await this.getUnregisteredPubStakeKeys();
+                        this.createNativeScript();
                     }
                 // else if connection failed, reset all state
                 } else {
@@ -633,16 +654,6 @@ class App extends React.Component {
         this.setState({selectedCIP95});
     }
 
-    handleSeeCIP95 = () => {
-        const seeCIP95 = !this.state.seeCIP95;
-        this.setState({seeCIP95});
-    }
-
-    handleSeeCIP30 = () => {
-        const seeCIP30 = !this.state.seeCIP30;
-        this.setState({seeCIP30});
-    }
-
     handleInputToCredential = async (input) => {
         try {
           const keyHash = Ed25519KeyHash.from_hex(input);
@@ -710,12 +721,6 @@ class App extends React.Component {
 
     setVotingBuilder = async (votingBuilderWithVote) => {
         this.setState({votingBuilder : votingBuilderWithVote});
-
-        // let votes = votingBuilderWithVote.build();
-        // let votesInJson = [];
-        // for (let i = 0; i < votes.get_voters().len(); i++) {
-        //     votesInJson.push(votes.get(i).to_json());
-        // }
         this.setState({votesInTx : votingBuilderWithVote.build().to_json()});
     }
 
@@ -952,6 +957,195 @@ class App extends React.Component {
         }
     }
 
+    // Generate a all sign native script using connected wallet's keys
+    createNativeScript = async () => {
+        const scripts = NativeScripts.new();
+
+        // get payment cred from change address add as script
+        const changeAddress = Address.from_bech32(this.state.changeAddress);
+        const paymentCred = changeAddress.payment_cred();
+        const paymentCredHash = paymentCred.to_keyhash();
+
+        const paymentKeyScript = NativeScript.new_script_pubkey(
+            ScriptPubkey.new(paymentCredHash)
+        );
+        scripts.add(paymentKeyScript);
+
+        // get stake cred from rewards address add as script
+        const rewardAddress = RewardAddress.from_address(Address.from_bech32(this.state.rewardAddress));
+        const stakeCred = rewardAddress.payment_cred();
+        const stakeCredHash = stakeCred.to_keyhash();
+
+        const stakeKeyScript = NativeScript.new_script_pubkey(
+            ScriptPubkey.new(stakeCredHash)
+        );
+        scripts.add(stakeKeyScript);
+
+        // get DRep cred from pub DRep key add as script
+        // const dRepKeyScript = NativeScript.new_script_pubkey(
+        //     ScriptPubkey.new(Ed25519KeyHash.from_hex(this.state.dRepID))
+        // );
+        // scripts.add(dRepKeyScript);
+
+        const multiSigScript = NativeScript.new_script_all(
+            ScriptAll.new(scripts)
+        );
+        
+        // console.log("MultiSigScript: ", multiSigScript.to_json());
+        // console.log("Script Hex", multiSigScript.to_hex())
+
+        this.setState({multiSigScript});
+    }
+
+    handleMultiSigScriptInput = (input) => {
+        // check that this is a Native Script
+        try {
+            // Set the state 
+            const scripts = NativeScripts.from_hex(input);
+            this.setState({multiSigScript: scripts});
+
+            // Iterate through the scripts and get the required signing keys
+            // let requiredSigningKeys = [];
+            // for (let i = 0; i < scripts.len(); i++) {
+            //     const script = scripts.get(i);
+            //     requiredSigningKeys.push(script.required_keys());
+            // }
+            // this.setState({requiredSigningKeys});
+        } catch (err) {
+            console.error('Error in parsing native script:');
+            console.error(err);
+            this.setState({buildingError : {msg: 'Error in parsing native script', err: err}});
+            return;
+        };
+    }
+
+    createTransactionBody = async () => {
+        try {
+            console.log("Building transaction body")
+            // Initialize builder with protocol parameters
+            const txBuilder = await this.initTransactionBuilder();
+
+            // Add certs, votes, gov actions or donation to the transaction
+            if (this.state.certBuilder){
+                txBuilder.set_certs_builder(this.state.certBuilder);
+                this.setState({certBuilder : undefined});
+            }
+            if (this.state.votingBuilder){
+                txBuilder.set_voting_builder(this.state.votingBuilder);
+                this.setState({votingBuilder : undefined});
+            }
+            
+            // Set output and change addresses to those of our wallet
+            const shelleyOutputAddress = Address.from_bech32(this.state.usedAddress);
+            const shelleyChangeAddress = Address.from_bech32(this.state.changeAddress);
+            
+            // Add output of 1 ADA plus total needed for refunds 
+            let outputValue = BigNum.from_str('1000000')
+
+            // Ensure the total output is larger than total implicit inputs (refunds / withdrawals)
+            if (!txBuilder.get_implicit_input().is_zero()){
+                outputValue = outputValue.checked_add(txBuilder.get_implicit_input().coin())
+            }
+
+            // add output to the transaction
+            txBuilder.add_output(
+                TransactionOutput.new(
+                    shelleyOutputAddress,
+                    Value.new(outputValue)
+                ),
+            );
+            // Find the available UTxOs in the wallet and use them as Inputs for the transaction
+            await this.getUtxos();
+            const txUnspentOutputs = await this.getTxUnspentOutputs();
+
+            // Use UTxO selection strategy 2 and add change address to be used if needed
+            const changeConfig = ChangeConfig.new(shelleyChangeAddress);
+            
+            // Use UTxO selection strategy 2 if strategy 3 fails
+            try {
+                txBuilder.add_inputs_from_and_change(txUnspentOutputs, 3, changeConfig);
+            } catch (e) {
+                console.error(e);
+                txBuilder.add_inputs_from_and_change(txUnspentOutputs, 2, changeConfig);
+            }
+
+            // Build transaction body
+            const txBody = txBuilder.build();
+
+            this.setState({txBody : txBody});
+
+            console.log("Transaction Body: ", txBody.to_json());
+
+        } catch (err) {
+            console.error("App.buildSubmitConwayTx",err);
+            await this.refreshData();
+            this.setState({signAndSubmitError : (err)})
+        }
+    }
+
+    createWitnesses = async () => {
+            const transactionWitnessSet = TransactionWitnessSet.new();
+            // Build transaction body
+            const txBody = this.state.txBody;
+            // Make a full transaction, passing in empty witness set
+            const tx = Transaction.new(
+                txBody,
+                TransactionWitnessSet.from_bytes(transactionWitnessSet.to_bytes()),
+            );
+            // Ask wallet to to provide signature (witnesses) for the transaction
+            let txVkeyWitnesses;
+            // Log the CBOR of tx to console
+            console.log("UnsignedTx: ", Buffer.from(tx.to_bytes(), "utf8").toString("hex"));
+            txVkeyWitnesses = await this.API.signTx(Buffer.from(tx.to_bytes(), "utf8").toString("hex"), true);
+            // Create witness set object using the witnesses provided by the wallet
+            txVkeyWitnesses = TransactionWitnessSet.from_bytes(Buffer.from(txVkeyWitnesses, "hex"));
+            this.setState({txWitnesses : txVkeyWitnesses});
+    }
+
+    addMultiSigVote = async () => {
+        this.refreshErrorState();
+        let votingBuilder = await this.getVotingBuilder();
+        console.log("Adding a multisig CC vote to transaction")
+        try {
+
+            // Get the credential from script
+            console.log("Your multisig script: ", this.state.multiSigScript.to_hex());
+            const hotCredential = Credential.from_scripthash((this.state.multiSigScript).hash());
+            const voter = Voter.new_constitutional_committee_hot_key(hotCredential);
+            // What is being voted on
+            const govActionId = GovernanceActionId.new(
+                TransactionHash.from_hex(this.state.voteGovActionTxHash), this.state.voteGovActionIndex);
+            // Voting choice
+            let votingChoice;
+            if ((this.state.voteChoice).toUpperCase() === "YES") {
+                votingChoice = 1
+            } else if ((this.state.voteChoice).toUpperCase() === "NO") {
+                votingChoice = 0
+            } else if ((this.state.voteChoice).toUpperCase() === "ABSTAIN") {
+                votingChoice = 2
+            }
+            let votingProcedure;
+            if (this.state.cip95MetadataURL && this.state.cip95MetadataHash) {
+                const anchorURL = URL.new(this.state.cip95MetadataURL);
+                const anchorHash = AnchorDataHash.from_hex(this.state.cip95MetadataHash);
+                const anchor = Anchor.new(anchorURL, anchorHash);
+                votingProcedure = VotingProcedure.new_with_anchor(votingChoice, anchor);
+            } else {
+                votingProcedure = VotingProcedure.new(votingChoice);
+            };
+            // Add vote to vote builder
+            const multiSigScript = NativeScriptSource.new(this.state.multiSigScript);
+            votingBuilder.add_with_native_script(voter, govActionId, votingProcedure, multiSigScript);
+            await this.setVotingBuilder(votingBuilder)
+            return true;
+        } catch (err) {
+            this.setState({buildingError : String(err)})
+            this.resetSomeState();
+            console.log(err);
+            return false;
+        }
+    }
+
     addCCVote = async () => {
         this.refreshErrorState();
         let votingBuilder = await this.getVotingBuilder();
@@ -1027,6 +1221,34 @@ class App extends React.Component {
                 
                 <hr style={{marginTop: "10px", marginBottom: "10px"}}/>
                 <label>
+                <span style={{ paddingRight: "5px", paddingLeft: '20px' }}>See create vote tx body?</span>
+                    <input
+                        type="checkbox"
+                        style={{ paddingRight: "10px", paddingLeft: "10px"}}
+                        checked={this.state.seeMakeTxBody}
+                        onChange={() => this.setState({ seeMakeTxBody: !this.state.seeMakeTxBody })}
+                    />
+                </label>
+                <label>
+                <span style={{ paddingRight: "5px", paddingLeft: '20px' }}>See make witness?</span>
+                    <input
+                        type="checkbox"
+                        style={{ paddingRight: "10px", paddingLeft: "10px"}}
+                        checked={this.state.seeMakeWitness}
+                        onChange={() => this.setState({ seeMakeWitness: !this.state.seeMakeWitness })}
+                    />
+                </label>
+                <label>
+                <span style={{ paddingRight: "5px", paddingLeft: '20px' }}>See standard CC stuff?</span>
+                    <input
+                        type="checkbox"
+                        style={{ paddingRight: "10px", paddingLeft: "10px"}}
+                        checked={this.state.seeCC}
+                        onChange={() => this.setState({ seeCC: !this.state.seeCC })}
+                    />
+                </label>
+
+                <label>
                 <span style={{ paddingRight: "5px", paddingLeft: '20px' }}>See CIP30 info?</span>
                     <input
                         type="checkbox"
@@ -1046,6 +1268,104 @@ class App extends React.Component {
                     />
                 </label>
                 <hr style={{marginTop: "10px", marginBottom: "10px"}}/>
+                { this.state.seeMakeTxBody && (
+                    <>
+                    <p><span style={{fontWeight: "bold"}}>Create a native script cc vote transaction body</span></p>
+                    <div style={{marginLeft: "20px"}}>
+
+                    <FormGroup
+                        label="CC MultiSig Script"
+                        helperText="(Hex encoded)"
+                    >
+                        <InputGroup
+                            disabled={false}
+                            leftIcon="id-number"
+                            onChange={(event) => this.handleMultiSigScriptInput(event.target.value)}
+                            defaultValue={this.state.multiSigScript ? this.state.multiSigScript.to_hex() : ''}
+                        />
+                    </FormGroup>
+
+                    <FormGroup
+                        label="Gov Action Tx Hash"
+                    >
+                        <InputGroup
+                            disabled={false}
+                            leftIcon="id-number"
+                            onChange={(event) => this.setState({voteGovActionTxHash: event.target.value})}
+                            defaultValue={this.state.voteGovActionTxHash}
+                        />
+                    </FormGroup>
+
+                    <FormGroup
+                        label="Gov Action Tx Vote Index"
+                    >
+                        <InputGroup
+                            disabled={false}
+                            leftIcon="id-number"
+                            onChange={(event) => this.setState({voteGovActionIndex: event.target.value})}
+                            defaultValue={this.state.voteGovActionIndex}
+                        />
+                    </FormGroup>
+
+                    <FormGroup
+                        helperText="Yes | No | Abstain"
+                        label="Vote Choice"
+                    >
+                        <InputGroup
+                            disabled={false}
+                            leftIcon="id-number"
+                            onChange={(event) => this.setState({voteChoice: event.target.value})}
+                            defaultValue={this.state.voteChoice}
+                        />
+                    </FormGroup>
+
+                    <FormGroup
+                        label="Optional: Metadata URL"
+                    >
+                        <InputGroup
+                            disabled={false}
+                            leftIcon="id-number"
+                            onChange={(event) => this.setState({cip95MetadataURL: event.target.value})}
+                        />
+                    </FormGroup>
+
+                    <FormGroup
+                        helperText=""
+                        label="Optional: Metadata Hash"
+                    >
+                        <InputGroup
+                            disabled={false}
+                            leftIcon="id-number"
+                            onChange={(event) => this.setState({cip95MetadataHash: event.target.value})}
+                        />
+                    </FormGroup>
+                    <button style={{padding: "10px"}} onClick={ () => this.createTransactionBody()}>Create transaction body</button>
+                    <button style={{padding: "10px"}} onClick={this.refreshData}>Refresh</button>
+                    <hr style={{marginTop: "10px", marginBottom: "10px"}}/>
+                    <p><span style={{fontWeight: "bold"}}>Transaction Body: </span>{this.state.txBody ? this.state.txBody.to_hex() : ''}</p>
+                    <hr style={{marginTop: "2px", marginBottom: "10px"}}/>
+                    </div>
+                    </>
+                )}
+                { this.state.seeMakeWitness && (
+                    <>
+                    <FormGroup
+                        label="Transaction Body"
+                        helperText="(Hex encoded)"
+                    >
+                        <InputGroup
+                            disabled={false}
+                            leftIcon="id-number"
+                            onChange={(event) => this.setState({txBody: TransactionBody.from_hex(event.target.value)})}
+                            defaultValue={this.state.txBody ? this.state.txBody.to_hex() : ''}
+                        />
+                    </FormGroup>
+                    <button style={{padding: "10px"}} onClick={ () => this.createWitnesses()}>Create witness</button>
+                    <hr style={{marginTop: "10px", marginBottom: "10px"}}/>
+                    <p><span style={{fontWeight: "bold"}}>Witnesses: </span>{this.state.txWitnesses ? (this.state.txWitnesses).to_hex() : ''}</p>
+                    <hr style={{marginTop: "2px", marginBottom: "10px"}}/>
+                    </>
+                )}
 
                 { this.state.seeCIP30 && (
                     <>
@@ -1082,192 +1402,271 @@ class App extends React.Component {
                     </>
                 )}
 
-                <Tabs id="cip95-basic" vertical={true} onChange={this.handle95TabId} selectedTab95Id={this.state.selected95BasicTabId}>
-                    <Tab id="1" title="🔥 Authorize CC Hot Credential" panel={
-                        <div style={{marginLeft: "20px"}}>
-                            <FormGroup
-                                helperText="(Bech32 or Hex encoded)"
-                                label="CC Cold Credential"
-                            >
-                                <InputGroup
-                                    disabled={false}
-                                    leftIcon="id-number"
-                                    onChange={(event) => this.setState({coldCredential: event.target.value})}
-                                />
-                            </FormGroup>
+                { this.state.seeCC && (
 
-                            <FormGroup
-                                helperText="(Bech32 or Hex encoded)"
-                                label="CC Hot Credential"
-                            >
-                                <InputGroup
-                                    disabled={false}
-                                    leftIcon="id-number"
-                                    onChange={(event) => this.setState({hotCredential: event.target.value})}
-                                />
-                            </FormGroup>
-                            <button style={{padding: "10px"}} onClick={ () => this.addAuthorizeHotCredCert()}>Build, add to Tx</button>
-                        </div>
-                    } />
-                    <Tab id="2" title="🧊 Resign CC Cold Credential" panel={
-                        <div style={{marginLeft: "20px"}}>
-                            <FormGroup
-                                helperText="(Bech32 or Hex encoded)"
-                                label="CC Cold Credential"
-                            >
-                                <InputGroup
-                                    disabled={false}
-                                    leftIcon="id-number"
-                                    onChange={(event) => this.setState({coldCredential: event.target.value})}
-                                />
-                            </FormGroup>
+                    <Tabs id="cip95-basic" vertical={true} onChange={this.handle95TabId} selectedTab95Id={this.state.selected95BasicTabId}>
+                        <Tab id="1" title="🔥 Authorize CC Hot Credential" panel={
+                            <div style={{marginLeft: "20px"}}>
+                                <FormGroup
+                                    helperText="(Bech32 or Hex encoded)"
+                                    label="CC Cold Credential"
+                                >
+                                    <InputGroup
+                                        disabled={false}
+                                        leftIcon="id-number"
+                                        onChange={(event) => this.setState({coldCredential: event.target.value})}
+                                    />
+                                </FormGroup>
 
-                            <FormGroup
-                                label="Optional: Metadata URL"
-                            >
-                                <InputGroup
-                                    disabled={false}
-                                    leftIcon="id-number"
-                                    onChange={(event) => this.setState({cip95MetadataURL: event.target.value})}
-                                    defaultValue={this.state.cip95MetadataURL}
-                                />
-                            </FormGroup>
-
-                            <FormGroup
-                                helperText=""
-                                label="Optional: Metadata Hash"
-                            >
-                                <InputGroup
-                                    disabled={false}
-                                    leftIcon="id-number"
-                                    onChange={(event) => this.setState({cip95MetadataHash: event.target.value})}
-                                />
-                            </FormGroup>
-                            <button style={{padding: "10px"}} onClick={ () => this.addResignColdCredCert()}>Build, add to Tx</button>
-                        </div>
-                    } />
-                    <Tab id="3" title="🗳 CC Vote" panel={
-                        <div style={{marginLeft: "20px"}}>
-
-                            <FormGroup
-                                helperText="(Bech32 or Hex encoded)"
-                                label="CC Hot Credential"
-                            >
-                                <InputGroup
-                                    disabled={false}
-                                    leftIcon="id-number"
-                                    onChange={(event) => this.setState({hotCredential: event.target.value})}
-                                />
-                            </FormGroup>
-
-                            <FormGroup
-                                helperText=""
-                                label="Gov Action Tx Hash"
-                            >
-                                <InputGroup
-                                    disabled={false}
-                                    leftIcon="id-number"
-                                    onChange={(event) => this.setState({voteGovActionTxHash: event.target.value})}
-                                />
-                            </FormGroup>
-
-                            <FormGroup
-                                helperText=""
-                                label="Gov Action Tx Vote Index"
-                            >
-                                <InputGroup
-                                    disabled={false}
-                                    leftIcon="id-number"
-                                    onChange={(event) => this.setState({voteGovActionTxIndex: event.target.value})}
-                                />
-                            </FormGroup>
-
-                            <FormGroup
-                                helperText="Yes | No | Abstain"
-                                label="Vote Choice"
-                            >
-                                <InputGroup
-                                    disabled={false}
-                                    leftIcon="id-number"
-                                    onChange={(event) => this.setState({voteChoice: event.target.value})}
-                                />
-                            </FormGroup>
-
-                            <FormGroup
-                                label="Optional: Metadata URL"
-                            >
-                                <InputGroup
-                                    disabled={false}
-                                    leftIcon="id-number"
-                                    onChange={(event) => this.setState({cip95MetadataURL: event.target.value})}
-                                />
-                            </FormGroup>
-
-                            <FormGroup
-                                helperText=""
-                                label="Optional: Metadata Hash"
-                            >
-                                <InputGroup
-                                    disabled={false}
-                                    leftIcon="id-number"
-                                    onChange={(event) => this.setState({cip95MetadataHash: event.target.value})}
-                                />
-                            </FormGroup>
-                            <button style={{padding: "10px"}} onClick={ () => this.addCCVote()}>Build, add to Tx</button>
-                        </div>
-                    } />
-                    <Tab id="4" title=" 💯 Test Basic Transaction" panel={
-                        <div style={{marginLeft: "20px"}}>
-
-                            <button style={{padding: "10px"}} onClick={ () => this.buildSubmitConwayTx(true) }>Build, .signTx() and .submitTx()</button>
-
-                        </div>
-                    } />
-                    <Tabs.Expander />
-                </Tabs>
-                <hr style={{marginTop: "10px", marginBottom: "10px"}}/>
-                
-                <p><span style={{fontWeight: "bold"}}>Contents of transaction: </span></p>
-
-                {!this.state.buildingError && !this.state.signAndSubmitError && (
-                    <ul>{this.state.govActsInTx.concat(this.state.certsInTx.concat(this.state.votesInTx)).length > 0 ? this.state.govActsInTx.concat(this.state.certsInTx.concat(this.state.votesInTx)).map((item, index) => ( <li style={{ fontSize: "12px" }} key={index}>{item}</li>)) : <li>No certificates, votes or gov actions in transaction.</li>}</ul>
-                )}
-                {[
-                    { title: "🚨 Error during building 🚨", error: this.state.buildingError },
-                    { title: "🚨 Error during sign and submit 🚨", error: this.state.signAndSubmitError }
-                ].map(({ title, error }, index) => (
-                    error && (
-                        <React.Fragment key={index}>
-                            <h5>{title}</h5>
-                            <div>
-                                {typeof error === 'object' && error !== null ? (
-                                    <ul>
-                                        {Object.entries(error).map(([key, value], i) => (
-                                            <li key={i}>
-                                                <strong>{key}:</strong> {typeof value === 'object' ? JSON.stringify(value) : value}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                ) : (
-                                    <p><span style={{ fontWeight: "bold" }}>{error}</span></p>
-                                )}
+                                <FormGroup
+                                    helperText="(Bech32 or Hex encoded)"
+                                    label="CC Hot Credential"
+                                >
+                                    <InputGroup
+                                        disabled={false}
+                                        leftIcon="id-number"
+                                        onChange={(event) => this.setState({hotCredential: event.target.value})}
+                                    />
+                                </FormGroup>
+                                <button style={{padding: "10px"}} onClick={ () => this.addAuthorizeHotCredCert()}>Build, add to Tx</button>
                             </div>
-                        </React.Fragment>
-                    )
-                ))}
-                
-                <button style={{padding: "10px"}} onClick={ () => this.buildSubmitConwayTx(true) }>.signTx() and .submitTx()</button>
-                <button style={{padding: "10px"}} onClick={this.refreshData}>Refresh</button> 
+                        } />
+                        <Tab id="2" title="🧊 Resign CC Cold Credential" panel={
+                            <div style={{marginLeft: "20px"}}>
+                                <FormGroup
+                                    helperText="(Bech32 or Hex encoded)"
+                                    label="CC Cold Credential"
+                                >
+                                    <InputGroup
+                                        disabled={false}
+                                        leftIcon="id-number"
+                                        onChange={(event) => this.setState({coldCredential: event.target.value})}
+                                    />
+                                </FormGroup>
 
-                <hr style={{marginTop: "10px", marginBottom: "10px"}}/>
-                {this.state.cip95ResultTx !== '' && this.state.cip95ResultHash !== '' && (
-                <>
-                    <h5>🚀 Transaction signed and submitted successfully 🚀</h5>
-                </>
+                                <FormGroup
+                                    label="Optional: Metadata URL"
+                                >
+                                    <InputGroup
+                                        disabled={false}
+                                        leftIcon="id-number"
+                                        onChange={(event) => this.setState({cip95MetadataURL: event.target.value})}
+                                        defaultValue={this.state.cip95MetadataURL}
+                                    />
+                                </FormGroup>
+
+                                <FormGroup
+                                    helperText=""
+                                    label="Optional: Metadata Hash"
+                                >
+                                    <InputGroup
+                                        disabled={false}
+                                        leftIcon="id-number"
+                                        onChange={(event) => this.setState({cip95MetadataHash: event.target.value})}
+                                    />
+                                </FormGroup>
+                                <button style={{padding: "10px"}} onClick={ () => this.addResignColdCredCert()}>Build, add to Tx</button>
+                            </div>
+                        } />
+                        <Tab id="3" title="🗳 CC Vote" panel={
+                            <div style={{marginLeft: "20px"}}>
+
+                                <FormGroup
+                                    helperText="(Bech32 or Hex encoded)"
+                                    label="CC Hot Credential"
+                                >
+                                    <InputGroup
+                                        disabled={false}
+                                        leftIcon="id-number"
+                                        onChange={(event) => this.setState({hotCredential: event.target.value})}
+                                    />
+                                </FormGroup>
+
+                                <FormGroup
+                                    helperText=""
+                                    label="Gov Action Tx Hash"
+                                >
+                                    <InputGroup
+                                        disabled={false}
+                                        leftIcon="id-number"
+                                        onChange={(event) => this.setState({voteGovActionTxHash: event.target.value})}
+                                    />
+                                </FormGroup>
+
+                                <FormGroup
+                                    helperText=""
+                                    label="Gov Action Tx Vote Index"
+                                >
+                                    <InputGroup
+                                        disabled={false}
+                                        leftIcon="id-number"
+                                        onChange={(event) => this.setState({voteGovActionIndex: event.target.value})}
+                                    />
+                                </FormGroup>
+
+                                <FormGroup
+                                    helperText="Yes | No | Abstain"
+                                    label="Vote Choice"
+                                >
+                                    <InputGroup
+                                        disabled={false}
+                                        leftIcon="id-number"
+                                        onChange={(event) => this.setState({voteChoice: event.target.value})}
+                                    />
+                                </FormGroup>
+
+                                <FormGroup
+                                    label="Optional: Metadata URL"
+                                >
+                                    <InputGroup
+                                        disabled={false}
+                                        leftIcon="id-number"
+                                        onChange={(event) => this.setState({cip95MetadataURL: event.target.value})}
+                                    />
+                                </FormGroup>
+
+                                <FormGroup
+                                    helperText=""
+                                    label="Optional: Metadata Hash"
+                                >
+                                    <InputGroup
+                                        disabled={false}
+                                        leftIcon="id-number"
+                                        onChange={(event) => this.setState({cip95MetadataHash: event.target.value})}
+                                    />
+                                </FormGroup>
+                                <button style={{padding: "10px"}} onClick={ () => this.addCCVote()}>Build, add to Tx</button>
+                            </div>
+                        } />
+                        <Tab id="4" title="🗳 CC MultiSig Script Vote" panel={
+                            <div style={{marginLeft: "20px"}}>
+
+                                <FormGroup
+                                    label="CC MultiSig Script"
+                                    helperText="(Hex encoded)"
+                                >
+                                    <InputGroup
+                                        disabled={false}
+                                        leftIcon="id-number"
+                                        onChange={(event) => this.handleMultiSigScriptInput(event.target.value)}
+                                        defaultValue={this.state.multiSigScript ? this.state.multiSigScript.to_hex() : ''}
+                                    />
+                                </FormGroup>
+
+                                <FormGroup
+                                    label="Gov Action Tx Hash"
+                                >
+                                    <InputGroup
+                                        disabled={false}
+                                        leftIcon="id-number"
+                                        onChange={(event) => this.setState({voteGovActionTxHash: event.target.value})}
+                                        defaultValue={this.state.voteGovActionTxHash}
+                                    />
+                                </FormGroup>
+
+                                <FormGroup
+                                    label="Gov Action Tx Vote Index"
+                                >
+                                    <InputGroup
+                                        disabled={false}
+                                        leftIcon="id-number"
+                                        onChange={(event) => this.setState({voteGovActionIndex: event.target.value})}
+                                        defaultValue={this.state.voteGovActionIndex}
+                                    />
+                                </FormGroup>
+
+                                <FormGroup
+                                    helperText="Yes | No | Abstain"
+                                    label="Vote Choice"
+                                >
+                                    <InputGroup
+                                        disabled={false}
+                                        leftIcon="id-number"
+                                        onChange={(event) => this.setState({voteChoice: event.target.value})}
+                                        defaultValue={this.state.voteChoice}
+                                    />
+                                </FormGroup>
+
+                                <FormGroup
+                                    label="Optional: Metadata URL"
+                                >
+                                    <InputGroup
+                                        disabled={false}
+                                        leftIcon="id-number"
+                                        onChange={(event) => this.setState({cip95MetadataURL: event.target.value})}
+                                    />
+                                </FormGroup>
+
+                                <FormGroup
+                                    helperText=""
+                                    label="Optional: Metadata Hash"
+                                >
+                                    <InputGroup
+                                        disabled={false}
+                                        leftIcon="id-number"
+                                        onChange={(event) => this.setState({cip95MetadataHash: event.target.value})}
+                                    />
+                                </FormGroup>
+                                <button style={{padding: "10px"}} onClick={ () => this.addMultiSigVote()}>Build, add to Tx</button>
+                            </div>
+                        } />
+                        <Tab id="5" title=" 💯 Test Basic Transaction" panel={
+                            <div style={{marginLeft: "20px"}}>
+
+                                <button style={{padding: "10px"}} onClick={ () => this.buildSubmitConwayTx(true) }>Build, .signTx() and .submitTx()</button>
+
+                            </div>
+                        } />
+                        <Tabs.Expander />
+                    </Tabs>
                 )}
-                <p><span style={{fontWeight: "bold"}}>Tx Hash: </span>{this.state.cip95ResultHash}</p>
-                <p><span style={{fontWeight: "bold"}}>CborHex Tx: </span>{this.state.cip95ResultTx}</p>
-                <hr style={{marginTop: "2px", marginBottom: "10px"}}/>
+                <hr style={{marginTop: "10px", marginBottom: "10px"}}/>
+                
+                { this.state.seeCIP30 || this.state.seeCIP95 || this.state.seeCC && (
+                    <>
+                    <p><span style={{fontWeight: "bold"}}>Contents of transaction: </span></p>
+
+                    {!this.state.buildingError && !this.state.signAndSubmitError && (
+                        <ul>{this.state.govActsInTx.concat(this.state.certsInTx.concat(this.state.votesInTx)).length > 0 ? this.state.govActsInTx.concat(this.state.certsInTx.concat(this.state.votesInTx)).map((item, index) => ( <li style={{ fontSize: "12px" }} key={index}>{item}</li>)) : <li>No certificates, votes or gov actions in transaction.</li>}</ul>
+                    )}
+                    {[
+                        { title: "🚨 Error during building 🚨", error: this.state.buildingError },
+                        { title: "🚨 Error during sign and submit 🚨", error: this.state.signAndSubmitError }
+                    ].map(({ title, error }, index) => (
+                        error && (
+                            <React.Fragment key={index}>
+                                <h5>{title}</h5>
+                                <div>
+                                    {typeof error === 'object' && error !== null ? (
+                                        <ul>
+                                            {Object.entries(error).map(([key, value], i) => (
+                                                <li key={i}>
+                                                    <strong>{key}:</strong> {typeof value === 'object' ? JSON.stringify(value) : value}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    ) : (
+                                        <p><span style={{ fontWeight: "bold" }}>{error}</span></p>
+                                    )}
+                                </div>
+                            </React.Fragment>
+                        )
+                    ))}
+                    
+                    <button style={{padding: "10px"}} onClick={ () => this.buildSubmitConwayTx(true) }>.signTx() and .submitTx()</button>
+                    <button style={{padding: "10px"}} onClick={this.refreshData}>Refresh</button> 
+
+                    <hr style={{marginTop: "10px", marginBottom: "10px"}}/>
+                    {this.state.cip95ResultTx !== '' && this.state.cip95ResultHash !== '' && (
+                    <>
+                        <h5>🚀 Transaction signed and submitted successfully 🚀</h5>
+                    </>
+                    )}
+                    <p><span style={{fontWeight: "bold"}}>Tx Hash: </span>{this.state.cip95ResultHash}</p>
+                    <p><span style={{fontWeight: "bold"}}>CborHex Tx: </span>{this.state.cip95ResultTx}</p>
+                    <hr style={{marginTop: "2px", marginBottom: "10px"}}/>
+                    </>
+                )}
                 
                 <h5>💖 Powered by CSL 12.0.0 beta 2 💖</h5>
             </div>
